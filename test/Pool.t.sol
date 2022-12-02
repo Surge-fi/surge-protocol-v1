@@ -17,16 +17,11 @@ contract PoolTest is Test {
         pool = new Pool(
             IERC20(address(collateralToken)),
             IERC20(address(creditToken)),
-            10000000, // 10 million bps ratio = 1000x
-            1000 // 10% interest rate
+            10000000 // 10 million bps ratio = 1000x
         );
     }
 
     function testGetMaxCreditOf() public {
-        collateralToken.approve(address(pool), 1e6);
-        pool.secure(1e6);
-        assertEq(pool.collateralSharesBalanceOf(address(this)), 1e6);
-        assertEq(pool.getMaxCreditOf(address(this)), 1000e18);
     }
 
 }
