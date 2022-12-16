@@ -9,14 +9,13 @@ interface IERC20 {
 }
 
 interface IFactory {
-    function getFee(address pool) external view returns (address to, uint feeMantissa);
+    function getFee() external view returns (address to, uint feeMantissa);
 }
 
 contract Pool {
 
     uint constant MAX_BASE_APR_MANTISSA = 0.4e18;
     uint constant MAX_JUMP_APR_MANTISSA = 0.6e18;
-    uint constant MAX_UTIL_MANTISSA = 0.8e18;
     IFactory public immutable factory;
     IERC20 public immutable collateralToken;
     IERC20 public immutable loanToken;
@@ -48,7 +47,7 @@ contract Pool {
         if (totalDebt > 0) {
             // totalDebt = 1,000,000; getBorrowRateMantissa = 0.1e18; seconds = 1 year; interest = 100,000
             uint interest = totalDebt * getBorrowRateMantissa() / 1e18 * (block.timestamp - lastAccrueInterestTime) / 365 days;
-            (address feeRecipient, uint feeMantissa) = factory.getFee(address(this));
+            (address feeRecipient, uint feeMantissa) = factory.getFee();
             totalDebt += interest;
             if(feeMantissa > 0) {
                 uint fee = interest * feeMantissa / 1e18;
@@ -189,6 +188,7 @@ contract Pool {
         totalDebt += amount;
         loanToken.transfer(msg.sender, amount);
         assertCollateralRatio(msg.sender);
+        require(getUtilizationMantissa() <= kinkMantissa, "Pool: utilization too high");
     }
 
     function repay(address borrower, uint amount) external accrueInterest {
@@ -214,3 +214,4 @@ contract Pool {
         collateralToken.transfer(msg.sender, collateralReward);
     }
     event Transfer(address from, address to, uint value);
+}
