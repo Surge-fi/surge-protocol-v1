@@ -10,10 +10,12 @@ interface IERC20 {
 
 interface IFactory {
     function getFee() external view returns (address to, uint feeMantissa);
+    function globalDivestDelegates(address, address) external view returns (bool);
 }
 
 contract Pool {
 
+    uint8 constant decimals = 18;
     uint constant MAX_BASE_APR_MANTISSA = 0.4e18;
     uint constant MAX_JUMP_APR_MANTISSA = 0.6e18;
     IFactory public immutable factory;
@@ -28,10 +30,13 @@ contract Pool {
     uint public totalDebt;
     uint public lastAccrueInterestTime;
     uint public totalSupply;
+    mapping (address => mapping (address => uint)) public allowance;
     mapping (address => uint) public balanceOf;
     mapping (address => uint) public collateralBalanceOf;
+    mapping (address => mapping(address => bool)) public divestDelegates;
 
     constructor (IERC20 _collateralToken, IERC20 _loanToken, uint _maxCollateralRatioMantissa, uint _kinkMantissa, uint _collateralRatioSpeedMantissa) {
+        require(_collateralToken != _loanToken, "Pool: collateral and loan tokens are the same");
         require(_maxCollateralRatioMantissa > 0, "Pool: _maxCollateralRatioMantissa too low");
         require(_maxCollateralRatioMantissa < 1e18, "Pool: _maxCollateralRatioMantissa too high");
         factory = IFactory(msg.sender);
@@ -121,6 +126,26 @@ contract Pool {
         return debtSharesBalanceOf[user] * totalDebt / debtSharesSupply;
     }
 
+    function transfer(address to, uint amount) external returns (bool) {
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(msg.sender, to, amount);
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint amount) external returns (bool) {
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(from, to, amount);
+        return true;
+    }
+
+    function approve(address spender, uint amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        emit Approval(msg.sender, spender, amount);
+        return true;
+    }
+
     function invest(uint amount) external {
         if (totalSupply == 0) {
             totalSupply = amount;
@@ -136,6 +161,12 @@ contract Pool {
         }
 
         loanToken.transferFrom(msg.sender, address(this), amount);
+        emit Invest(msg.sender, amount);
+    }
+
+    function setDivestDelegate(address _delegate, bool _isDelegated) external {
+        divestDelegates[msg.sender][_delegate] = _isDelegated;
+        emit DivestDelegation(msg.sender, _delegate, _isDelegated);
     }
 
     function divest(uint amount) external accrueInterest {
@@ -145,6 +176,18 @@ contract Pool {
 
         loanToken.transfer(msg.sender, amount);
         emit Transfer(msg.sender, address(0), loanTokenShares);
+        emit Divest(msg.sender, amount);
+    }
+
+    function divestOnBehalf(address user, uint amount) external accrueInterest {
+        require(factory.globalDivestDelegates(user, msg.sender) || divestDelegates[user][msg.sender], "Pool: not authorized");
+        uint loanTokenShares = loanTokenToShares(amount);
+        totalSupply -= loanTokenShares;
+        balanceOf[user] -= loanTokenShares;
+
+        loanToken.transfer(user, amount);
+        emit Transfer(user, address(0), loanTokenShares);
+        emit Divest(user, amount);
     }
 
 
@@ -152,6 +195,7 @@ contract Pool {
         require(amount > 0, "Pool: amount too low");
         collateralBalanceOf[msg.sender] += amount;
         collateralToken.transferFrom(msg.sender, address(this), amount);
+        emit Secure(msg.sender, amount);
     }
 
     function assertCollateralRatio(address user) internal view {
@@ -172,6 +216,7 @@ contract Pool {
         require(amount > 0, "Pool: amount too low");
         collateralBalanceOf[msg.sender] -= amount;
         collateralToken.transfer(msg.sender, amount);
+        emit Unsecure(msg.sender, amount);
         assertCollateralRatio(msg.sender);
     }
 
@@ -187,6 +232,7 @@ contract Pool {
         }
         totalDebt += amount;
         loanToken.transfer(msg.sender, amount);
+        emit Borrow(msg.sender, amount);
         assertCollateralRatio(msg.sender);
         require(getUtilizationMantissa() <= kinkMantissa, "Pool: utilization too high");
     }
@@ -210,8 +256,19 @@ contract Pool {
         totalDebt -= amount;
         uint collateralReward = amount * userInvertedCollateralRatioMantissa / 1e18;
         collateralBalanceOf[borrower] -= collateralReward;
+        emit Liquidate(borrower, amount, collateralReward);
         loanToken.transferFrom(msg.sender, address(this), amount);
         collateralToken.transfer(msg.sender, collateralReward);
     }
+
     event Transfer(address from, address to, uint value);
+    event Approval(address owner, address spender, uint value);
+    event Invest(address indexed user, uint amount);
+    event Divest(address indexed user, uint amount);
+    event Borrow(address indexed user, uint amount);
+    event Repay(address indexed user, uint amount);
+    event Liquidate(address indexed user, uint amount, uint collateralReward);
+    event Secure(address indexed user, uint amount);
+    event Unsecure(address indexed user, uint amount);
+    event DivestDelegation(address indexed delegator, address indexed delegate, bool isDelegated);
 }

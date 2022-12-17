@@ -11,9 +11,14 @@ contract Factory {
     uint public constant MAX_FEE_MANTISSA = 0.2e18;
     mapping (Pool => bool) public isPool;
     Pool[] public pools;
+    mapping (address => mapping(address => bool)) public globalDivestDelegates;
 
     constructor (address _operator) {
         operator = _operator;
+    }
+
+    function getPoolsLength () external view returns (uint) {
+        return pools.length;
     }
 
     function setFeeRecipient(address _feeRecipient) external {
@@ -29,7 +34,9 @@ contract Factory {
     }
 
     function getFee() external view returns (address, uint) {
-        return (feeRecipient, feeMantissa);
+        uint _feeMantissa = feeMantissa;
+        if(_feeMantissa == 0) return (address(0), 0);
+        return (feeRecipient, _feeMantissa);
     }
 
     function deployPool(IERC20 _collateralToken, IERC20 _loanToken, uint _maxCollateralRatioMantissa, uint _kinkMantissa, uint _collateralRatioSpeedMantissa) external returns (Pool) {
@@ -39,5 +46,11 @@ contract Factory {
         return pool;
     }
 
+    function setGlobalDivestDelegate(address _delegate, bool _isDelegated) external {
+        globalDivestDelegates[msg.sender][_delegate] = _isDelegated;
+        emit GlobalDivestDelegation(msg.sender, _delegate, _isDelegated);
+    }
+
     event PoolDeployed(address pool, address indexed collateralToken, address indexed loanToken, uint indexed maxCollateralRatioMantissa, uint kinkMantissa, uint collateralRatioSpeedMantissa);
+    event GlobalDivestDelegation(address indexed delegator, address indexed delegate, bool isDelegated);
 }
