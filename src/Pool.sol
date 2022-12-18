@@ -78,6 +78,14 @@ contract Pool {
         }
     }
 
+    function getSupplyRateMantissa() public view returns (uint) {
+        (, uint feeMantissa) = factory.getFee();
+        uint oneMinusFee = 1e18 - feeMantissa;
+        uint borrowRate = getBorrowRateMantissa();
+        uint rateToPool = borrowRate * oneMinusFee / 1e18;
+        return getUtilizationMantissa() * rateToPool / 1e18;
+    }
+
     function getUtilizationMantissa() public view returns (uint) {
         uint supplied = getSuppliedLoanTokens();
         if(supplied == 0) return 0;
