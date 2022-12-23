@@ -11,7 +11,6 @@ contract Factory {
     uint public constant MAX_FEE_MANTISSA = 0.2e18;
     mapping (Pool => bool) public isPool;
     Pool[] public pools;
-    mapping (address => mapping(address => bool)) public globalDivestDelegates;
 
     constructor (address _operator) {
         operator = _operator;
@@ -43,14 +42,9 @@ contract Factory {
         Pool pool = new Pool(_collateralToken, _loanToken, _maxCollateralRatioMantissa, _kinkMantissa, _collateralRatioSpeedMantissa);
         isPool[pool] = true;
         pools.push(pool);
+        emit PoolDeployed(address(pool), address(_collateralToken), address(_loanToken), _maxCollateralRatioMantissa, _kinkMantissa, _collateralRatioSpeedMantissa);
         return pool;
     }
 
-    function setGlobalDivestDelegate(address _delegate, bool _isDelegated) external {
-        globalDivestDelegates[msg.sender][_delegate] = _isDelegated;
-        emit GlobalDivestDelegation(msg.sender, _delegate, _isDelegated);
-    }
-
     event PoolDeployed(address pool, address indexed collateralToken, address indexed loanToken, uint indexed maxCollateralRatioMantissa, uint kinkMantissa, uint collateralRatioSpeedMantissa);
-    event GlobalDivestDelegation(address indexed delegator, address indexed delegate, bool isDelegated);
 }
