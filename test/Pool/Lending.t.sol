@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
 import "../../src/Pool.sol";
@@ -44,23 +44,25 @@ contract PoolTest is Test {
         assertEq(pool.totalSupply(), 0e18);
     }
 
-    // function testInterestAccrual() external {
-    //     // create tokens
-    //     MockERC20 collateralToken = new MockERC20(1000e18, 18);
-    //     MockERC20 loanToken = new MockERC20(100e18, 18);
-    //     // create pool
-    //     Pool pool = factory.deployPool(IERC20(address(collateralToken)), IERC20(address(loanToken)), 1e18, 0.8e18, 1e15);
-    //     loanToken.approve(address(pool), 1000e18);
-    //     // invest 100
-    //     pool.invest(100e18);
-    //     // add collateral using secure()
-    //     collateralToken.approve(address(pool), 100e18);
-    //     pool.secure(address(this), 100e18);
-    //     pool.borrow(80e18);
-    //     // move time forward 1 day
-    //     vm.warp(block.timestamp + 365 days);
-    //     // assert interest accrued
-    //     assertEq(pool.getInvestmentOf(address(this)), 40e18);
-    // }
+    function testInterestAccrual() external {
+        // create tokens
+        MockERC20 collateralToken = new MockERC20(1000e18, 18);
+        MockERC20 loanToken = new MockERC20(100e18, 18);
+        // create pool
+        Pool pool = factory.deployPool(IERC20(address(collateralToken)), IERC20(address(loanToken)), 1e18, 0.8e18, 1e15);
+        loanToken.approve(address(pool), 1000e18);
+        // invest 100
+        pool.invest(100e18);
+        // add collateral using secure()
+        collateralToken.approve(address(pool), 100e18);
+        pool.secure(address(this), 100e18);
+        pool.borrow(80e18);
+        // move time forward 1 day
+        vm.warp(block.timestamp + 365 days);
+        // assert interest accrued
+        pool.divest(20);
+        vm.warp(block.timestamp + 365 days);
+        pool.invest(20);
+    }
 
 }
