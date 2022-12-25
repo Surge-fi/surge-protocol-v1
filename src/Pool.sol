@@ -15,8 +15,9 @@ interface IFactory {
 contract Pool {
 
     uint8 public constant decimals = 18;
-    uint public constant MAX_BASE_APR_MANTISSA = 0.4e18;
-    uint public constant MAX_JUMP_APR_MANTISSA = 0.6e18;
+    uint public constant SURGE_RATE = 0.4e18;
+    uint public constant MAX_RATE = 0.6e18;
+    uint public constant MIN_RATE = 0.1e18;
     IFactory public immutable factory;
     IERC20 public immutable collateralToken;
     IERC20 public immutable loanToken;
@@ -98,11 +99,12 @@ contract Pool {
 
     function getBorrowRateMantissa(uint _util, uint _kinkMantissa) internal pure returns (uint) {
         if(_util <= _kinkMantissa) {
-            return _util * MAX_BASE_APR_MANTISSA / 1e18;
+            uint ratePerUnit = (SURGE_RATE - MIN_RATE) * 1e18 / _kinkMantissa;
+            return ratePerUnit * _util / 1e18 + MIN_RATE;
         } else {
-            uint normalRate = _kinkMantissa * MAX_BASE_APR_MANTISSA / 1e18;
-            uint excessUtil = _util - _kinkMantissa;
-            return (excessUtil * MAX_JUMP_APR_MANTISSA / 1e18) + normalRate;
+            uint excessUtil = (_util - _kinkMantissa);
+            uint ratePerExcessUnit = (MAX_RATE - SURGE_RATE) * 1e18 / (1e18 - _kinkMantissa);
+            return ratePerExcessUnit * excessUtil / 1e18 + SURGE_RATE;
         }
     }
 
@@ -295,8 +297,10 @@ contract Pool {
         );
 
         uint userDebt = getDebtOf(balanceOf[msg.sender], debtSharesSupply, _currentTotalDebt);
-        uint userCollateralRatioMantissa = userDebt * 1e18 / (collateralBalanceOf[msg.sender] - amount);
-        require(userCollateralRatioMantissa <= _currentCollateralRatioMantissa, "Pool: user collateral ratio too high");
+        if(userDebt > 0) {
+            uint userCollateralRatioMantissa = userDebt * 1e18 / (collateralBalanceOf[msg.sender] - amount);
+            require(userCollateralRatioMantissa <= _currentCollateralRatioMantissa, "Pool: user collateral ratio too high");
+        }
 
         // commit current state
         totalSupply = _currentTotalSupply;
