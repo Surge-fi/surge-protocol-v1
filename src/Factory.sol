@@ -38,13 +38,22 @@ contract Factory {
         return (feeRecipient, _feeMantissa);
     }
 
-    function deployPool(IERC20 _collateralToken, IERC20 _loanToken, uint _maxCollateralRatioMantissa, uint _kinkMantissa, uint _collateralRatioSpeedMantissa) external returns (Pool) {
-        Pool pool = new Pool(_collateralToken, _loanToken, _maxCollateralRatioMantissa, _kinkMantissa, _collateralRatioSpeedMantissa);
+    function deployPool(
+        IERC20 _collateralToken,
+        IERC20 _loanToken,
+        uint _maxCollateralRatioMantissa,
+        uint _surgeMantissa,
+        uint _surgeMaxDuration,
+        uint _minRateMantissa,
+        uint _surgeRateMantissa,
+        uint _maxRateMantissa
+    ) external returns (Pool) {
+        Pool pool = new Pool(_collateralToken, _loanToken, _maxCollateralRatioMantissa, _surgeMantissa, _surgeMaxDuration, _minRateMantissa, _surgeRateMantissa, _maxRateMantissa);
         isPool[pool] = true;
         pools.push(pool);
-        emit PoolDeployed(address(pool), address(_collateralToken), address(_loanToken), _maxCollateralRatioMantissa, _kinkMantissa, _collateralRatioSpeedMantissa);
+        emit PoolDeployed(address(pool), address(_collateralToken), address(_loanToken), _maxCollateralRatioMantissa, _surgeMantissa, _surgeMaxDuration, _minRateMantissa, _surgeRateMantissa, _maxRateMantissa);
         return pool;
     }
-
-    event PoolDeployed(address pool, address indexed collateralToken, address indexed loanToken, uint indexed maxCollateralRatioMantissa, uint kinkMantissa, uint collateralRatioSpeedMantissa);
+    //TODO: add rate params
+    event PoolDeployed(address pool, address indexed collateralToken, address indexed loanToken, uint indexed maxCollateralRatioMantissa, uint surgeMantissa, uint surgeMaxDuration, uint minRateMantissa, uint surgeRateMantissa, uint maxRateMantissa);
 }

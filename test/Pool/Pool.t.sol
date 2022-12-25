@@ -7,7 +7,7 @@ import "../../src/Factory.sol";
 import "../../src/PoolLens.sol";
 import "../mocks/ERC20.sol";
 
-contract PoolTest is Test {
+contract PoolTest is Test, Pool(IERC20(address(0)), IERC20(address(1)), 1, 0, 0, 0, 0, 0) {
 
     Factory factory;
     PoolLens lens;
@@ -22,7 +22,7 @@ contract PoolTest is Test {
         MockERC20 collateralToken = new MockERC20(0, 18);
         MockERC20 loanToken = new MockERC20(1000e18, 18);
         // create pool
-        Pool pool = factory.deployPool(IERC20(address(collateralToken)), IERC20(address(loanToken)), 1e18, 0.8e18, 1e15);
+        Pool pool = factory.deployPool(IERC20(address(collateralToken)), IERC20(address(loanToken)), 1e18, 0.8e18, 1e15, 0.1e18, 0.4e18, 0.6e18);
         loanToken.approve(address(pool), 1000e18);
         // invest 100
         pool.invest(100e18);
@@ -50,7 +50,7 @@ contract PoolTest is Test {
     function testInterestAccrual() external {
         MockERC20 collateralToken = new MockERC20(1000e18, 18);
         MockERC20 loanToken = new MockERC20(1000e18, 18);
-        Pool pool = factory.deployPool(IERC20(address(collateralToken)), IERC20(address(loanToken)), 1e18, 0.8e18, 1e15);
+        Pool pool = factory.deployPool(IERC20(address(collateralToken)), IERC20(address(loanToken)), 1e18, 0.8e18, 1e15, 0.1e18, 0.4e18, 0.6e18);
         loanToken.approve(address(pool), 1000e18);
         collateralToken.approve(address(pool), 1000e18);
         pool.invest(125e18);
@@ -65,7 +65,7 @@ contract PoolTest is Test {
     function testInterestAccrual20Util() external {
         MockERC20 collateralToken = new MockERC20(1000e18, 18);
         MockERC20 loanToken = new MockERC20(1000e18, 18);
-        Pool pool = factory.deployPool(IERC20(address(collateralToken)), IERC20(address(loanToken)), 1e18, 0.8e18, 1e15);
+        Pool pool = factory.deployPool(IERC20(address(collateralToken)), IERC20(address(loanToken)), 1e18, 0.8e18, 1e15, 0.1e18, 0.4e18, 0.6e18);
         loanToken.approve(address(pool), 1000e18);
         collateralToken.approve(address(pool), 1000e18);
         pool.invest(100e18);
@@ -73,7 +73,7 @@ contract PoolTest is Test {
         pool.borrow(20e18);
         vm.warp(block.timestamp + 365 days);
         pool.repay(address(this), 23.5e18);
-        assertEq(pool.totalDebt(), 0);
+        assertEq(pool.lastTotalDebt(), 0);
         pool.divest(103.5e18);
         pool.unsecure(20e18);
     }
@@ -81,7 +81,7 @@ contract PoolTest is Test {
     function testInterestAccrual90Util() external {
         MockERC20 collateralToken = new MockERC20(1000e18, 18);
         MockERC20 loanToken = new MockERC20(1000e18, 18);
-        Pool pool = factory.deployPool(IERC20(address(collateralToken)), IERC20(address(loanToken)), 1e18, 0.8e18, 1e15);
+        Pool pool = factory.deployPool(IERC20(address(collateralToken)), IERC20(address(loanToken)), 1e18, 0.8e18, 1e15, 0.1e18, 0.4e18, 0.6e18);
         loanToken.approve(address(pool), 1000e18);
         collateralToken.approve(address(pool), 1000e18);
         pool.invest(125e18);
@@ -90,7 +90,7 @@ contract PoolTest is Test {
         pool.divest(25e18);
         vm.warp(block.timestamp + 365 days);
         pool.repay(address(this), 135e18);
-        assertEq(pool.totalDebt(), 0);
+        assertEq(pool.lastTotalDebt(), 0);
         pool.divest(135e18);
         pool.unsecure(90e18);
     }
@@ -98,7 +98,7 @@ contract PoolTest is Test {
     function testInterestAccrual100Util() external {
         MockERC20 collateralToken = new MockERC20(1000e18, 18);
         MockERC20 loanToken = new MockERC20(1000e18, 18);
-        Pool pool = factory.deployPool(IERC20(address(collateralToken)), IERC20(address(loanToken)), 1e18, 0.8e18, 1e15);
+        Pool pool = factory.deployPool(IERC20(address(collateralToken)), IERC20(address(loanToken)), 1e18, 0.8e18, 1e15, 0.1e18, 0.4e18, 0.6e18);
         loanToken.approve(address(pool), 1000e18);
         collateralToken.approve(address(pool), 1000e18);
         pool.invest(125e18);
@@ -107,7 +107,7 @@ contract PoolTest is Test {
         pool.divest(25e18);
         vm.warp(block.timestamp + 365 days);
         pool.repay(address(this), 160e18);
-        assertEq(pool.totalDebt(), 0);
+        assertEq(pool.lastTotalDebt(), 0);
         pool.divest(160e18);
         pool.unsecure(100e18);
     }

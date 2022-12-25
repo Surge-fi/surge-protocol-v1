@@ -14,36 +14,53 @@ interface IFactory {
 
 contract Pool {
 
+    IFactory public immutable FACTORY;
+    IERC20 public immutable COLLATERAL_TOKEN;
+    IERC20 public immutable LOAN_TOKEN;
     uint8 public constant decimals = 18;
-    uint public constant SURGE_RATE = 0.4e18;
-    uint public constant MAX_RATE = 0.6e18;
-    uint public constant MIN_RATE = 0.1e18;
-    IFactory public immutable factory;
-    IERC20 public immutable collateralToken;
-    IERC20 public immutable loanToken;
-    uint public immutable maxCollateralRatioMantissa;
-    uint public immutable kinkMantissa;
-    uint public immutable collateralRatioSpeedMantissa; //change in collateral ratio per second
+    uint public constant RATE_CEILING = 100e18; // 10,000% borrow APR
+    uint public immutable SURGE_RATE;
+    uint public immutable MAX_RATE;
+    uint public immutable MIN_RATE;
+    uint public immutable MAX_COLLATERAL_RATIO_MANTISSA;
+    uint public immutable SURGE_MANTISSA;
+    uint public immutable SURGE_MAX_DURATION;
     uint public lastCollateralRatioMantissa;
     uint public debtSharesSupply;
     mapping (address => uint) public debtSharesBalanceOf;
-    uint public totalDebt;
+    uint public lastTotalDebt;
     uint public lastAccrueInterestTime;
     uint public totalSupply;
     mapping (address => mapping (address => uint)) public allowance;
     mapping (address => uint) public balanceOf;
     mapping (address => uint) public collateralBalanceOf;
 
-    constructor (IERC20 _collateralToken, IERC20 _loanToken, uint _maxCollateralRatioMantissa, uint _kinkMantissa, uint _collateralRatioSpeedMantissa) {
+    constructor (
+        IERC20 _collateralToken,
+        IERC20 _loanToken,
+        uint _maxCollateralRatioMantissa,
+        uint _surgeMantissa,
+        uint _surgeMaxDuration,
+        uint _minRateMantissa,
+        uint _surgeRateMantissa,
+        uint _maxRateMantissa
+    ) {
         require(_collateralToken != _loanToken, "Pool: collateral and loan tokens are the same");
         require(_maxCollateralRatioMantissa > 0, "Pool: _maxCollateralRatioMantissa too low");
-        factory = IFactory(msg.sender);
-        collateralToken = _collateralToken;
-        loanToken = _loanToken;
-        maxCollateralRatioMantissa = _maxCollateralRatioMantissa;
-        kinkMantissa = _kinkMantissa;
-        collateralRatioSpeedMantissa = _collateralRatioSpeedMantissa;
+        require(_surgeMantissa <= 1e18, "Pool: _surgeMantissa too high");
+        require(_minRateMantissa <= _surgeRateMantissa, "Pool: _minRateMantissa too high");
+        require(_surgeRateMantissa <= _maxRateMantissa, "Pool: _surgeRateMantissa too high");
+        require(_maxRateMantissa <= RATE_CEILING, "Pool: _maxRateMantissa too high");
+        FACTORY = IFactory(msg.sender);
+        COLLATERAL_TOKEN = _collateralToken;
+        LOAN_TOKEN = _loanToken;
+        MAX_COLLATERAL_RATIO_MANTISSA = _maxCollateralRatioMantissa;
+        SURGE_MANTISSA = _surgeMantissa;
+        SURGE_MAX_DURATION = _surgeMaxDuration;
         lastCollateralRatioMantissa = _maxCollateralRatioMantissa;
+        MIN_RATE = _minRateMantissa;
+        SURGE_RATE = _surgeRateMantissa;
+        MAX_RATE = _maxRateMantissa;
     }
 
     function getCurrentState(
@@ -52,11 +69,14 @@ contract Pool {
         uint _now,
         uint _totalDebt,
         uint _loanTokenBalance,
-        uint _kinkMantissa,
+        uint _surgeMantissa,
         uint _feeMantissa,
         uint _lastCollateralRatioMantissa,
-        uint _collateralRatioSpeedMantissa,
-        uint _maxCollateralRatioMantissa
+        uint _surgeMaxDuration,
+        uint _maxCollateralRatioMantissa,
+        uint _minRateMantissa,
+        uint _surgeRateMantissa,
+        uint _maxRateMantissa
         ) internal pure returns (
             uint _currentTotalSupply,
             uint _accruedFeeShares,
@@ -80,14 +100,14 @@ contract Pool {
             _lastAccrueInterestTime,
             _now,
             _lastCollateralRatioMantissa,
-            _collateralRatioSpeedMantissa,
+            _surgeMaxDuration,
             _maxCollateralRatioMantissa,
-            _kinkMantissa
+            _surgeMantissa
         );
 
         if(_totalDebt == 0) return (_currentTotalSupply, _accruedFeeShares, _currentCollateralRatioMantissa, _currentTotalDebt);
 
-        uint _borrowRate = getBorrowRateMantissa(_util, _kinkMantissa);
+        uint _borrowRate = getBorrowRateMantissa(_util, _surgeMantissa, _minRateMantissa, _surgeRateMantissa, _maxRateMantissa);
         uint _interest = _totalDebt * _borrowRate / 1e18 * _timeDelta / 365 days;
         _currentTotalDebt += _interest;
         
@@ -97,14 +117,14 @@ contract Pool {
         _currentTotalSupply += _accruedFeeShares;
     }
 
-    function getBorrowRateMantissa(uint _util, uint _kinkMantissa) internal pure returns (uint) {
-        if(_util <= _kinkMantissa) {
-            uint ratePerUnit = (SURGE_RATE - MIN_RATE) * 1e18 / _kinkMantissa;
-            return ratePerUnit * _util / 1e18 + MIN_RATE;
+    function getBorrowRateMantissa(uint _util, uint _surgeMantissa, uint _minRateMantissa, uint _surgeRateMantissa, uint _maxRateMantissa) internal pure returns (uint) {
+        if(_util <= _surgeMantissa) {
+            uint ratePerUnit = (_surgeRateMantissa - _minRateMantissa) * 1e18 / _surgeMantissa;
+            return ratePerUnit * _util / 1e18 + _minRateMantissa;
         } else {
-            uint excessUtil = (_util - _kinkMantissa);
-            uint ratePerExcessUnit = (MAX_RATE - SURGE_RATE) * 1e18 / (1e18 - _kinkMantissa);
-            return ratePerExcessUnit * excessUtil / 1e18 + SURGE_RATE;
+            uint excessUtil = (_util - _surgeMantissa);
+            uint ratePerExcessUnit = (_maxRateMantissa - _surgeRateMantissa) * 1e18 / (1e18 - _surgeMantissa);
+            return ratePerExcessUnit * excessUtil / 1e18 + _surgeRateMantissa;
         }
     }
 
@@ -124,26 +144,22 @@ contract Pool {
         return _tokenAmount * _sharesTotalSupply / _supplied;
     }
 
-    // function getInvestmentOf (address account) public view returns (uint) {
-    //     if(totalSupply == 0) return 0;
-    //     return balanceOf[account] * getSuppliedLoanTokens() / totalSupply;
-    // }
-
     function getCollateralRatioMantissa(
         uint _util,
         uint _lastAccrueInterestTime,
         uint _now,
         uint _lastCollateralRatioMantissa,
-        uint _collateralRatioSpeedMantissa,
+        uint _surgeMaxDuration,
         uint _maxCollateralRatioMantissa,
-        uint _kinkMantissa
+        uint _surgeMantissa
         ) internal pure returns (uint) {
         if(_lastAccrueInterestTime == _now) return _lastCollateralRatioMantissa;
 
-        if(_util <= _kinkMantissa) {
+        if(_util <= _surgeMantissa) {
             if(_lastCollateralRatioMantissa == _maxCollateralRatioMantissa) return _lastCollateralRatioMantissa;
             uint timeDelta = _now - _lastAccrueInterestTime;
-            uint change = timeDelta * _collateralRatioSpeedMantissa;
+            uint speed = _maxCollateralRatioMantissa / _surgeMaxDuration;
+            uint change = timeDelta * speed;
             if(_lastCollateralRatioMantissa + change > _maxCollateralRatioMantissa) {
                 return _maxCollateralRatioMantissa;
             } else {
@@ -152,7 +168,8 @@ contract Pool {
         } else {
             if(_lastCollateralRatioMantissa == 0) return 0;
             uint timeDelta = _now - _lastAccrueInterestTime;
-            uint change = timeDelta * _collateralRatioSpeedMantissa;
+            uint speed = _maxCollateralRatioMantissa / _surgeMaxDuration;
+            uint change = timeDelta * speed;
             if(_lastCollateralRatioMantissa < change) {
                 return 0;
             } else {
@@ -182,8 +199,8 @@ contract Pool {
     }
 
     function invest(uint amount) external {
-        uint _loanTokenBalance = loanToken.balanceOf(address(this));
-        (address _feeRecipient, uint _feeMantissa) = factory.getFee();
+        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
+        (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
             uint _accruedFeeShares,
@@ -193,13 +210,16 @@ contract Pool {
             totalSupply,
             lastAccrueInterestTime,
             block.timestamp,
-            totalDebt,
+            lastTotalDebt,
             _loanTokenBalance,
-            kinkMantissa,
+            SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            collateralRatioSpeedMantissa,
-            maxCollateralRatioMantissa
+            SURGE_MAX_DURATION,
+            MAX_COLLATERAL_RATIO_MANTISSA,
+            MIN_RATE,
+            SURGE_RATE,
+            MAX_RATE
         );
 
         uint _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply);
@@ -208,7 +228,7 @@ contract Pool {
         // commit current state
         balanceOf[msg.sender] += _shares;
         totalSupply = _currentTotalSupply;
-        totalDebt = _currentTotalDebt;
+        lastTotalDebt = _currentTotalDebt;
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Invest(msg.sender, amount);
@@ -219,12 +239,12 @@ contract Pool {
         }
 
         // interactions
-        loanToken.transferFrom(msg.sender, address(this), amount);
+        LOAN_TOKEN.transferFrom(msg.sender, address(this), amount);
     }
 
     function divest(uint amount) external {
-        uint _loanTokenBalance = loanToken.balanceOf(address(this));
-        (address _feeRecipient, uint _feeMantissa) = factory.getFee();
+        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
+        (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
             uint _accruedFeeShares,
@@ -234,13 +254,16 @@ contract Pool {
             totalSupply,
             lastAccrueInterestTime,
             block.timestamp,
-            totalDebt,
+            lastTotalDebt,
             _loanTokenBalance,
-            kinkMantissa,
+            SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            collateralRatioSpeedMantissa,
-            maxCollateralRatioMantissa
+            SURGE_MAX_DURATION,
+            MAX_COLLATERAL_RATIO_MANTISSA,
+            MIN_RATE,
+            SURGE_RATE,
+            MAX_RATE
         );
 
         uint _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply);
@@ -249,7 +272,7 @@ contract Pool {
         // commit current state
         balanceOf[msg.sender] -= _shares;
         totalSupply = _currentTotalSupply;
-        totalDebt = _currentTotalDebt;
+        lastTotalDebt = _currentTotalDebt;
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Divest(msg.sender, amount);
@@ -260,13 +283,13 @@ contract Pool {
         }
 
         // interactions
-        loanToken.transfer(msg.sender, amount);
+        LOAN_TOKEN.transfer(msg.sender, amount);
     }
 
     function secure (address to, uint amount) external {
         require(amount > 0, "Pool: amount too low");
         collateralBalanceOf[to] += amount;
-        collateralToken.transferFrom(msg.sender, address(this), amount);
+        COLLATERAL_TOKEN.transferFrom(msg.sender, address(this), amount);
         emit Secure(to, msg.sender, amount);
     }
 
@@ -276,8 +299,8 @@ contract Pool {
     }
     
     function unsecure(uint amount) external {
-        uint _loanTokenBalance = loanToken.balanceOf(address(this));
-        (address _feeRecipient, uint _feeMantissa) = factory.getFee();
+        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
+        (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
             uint _accruedFeeShares,
@@ -287,13 +310,16 @@ contract Pool {
             totalSupply,
             lastAccrueInterestTime,
             block.timestamp,
-            totalDebt,
+            lastTotalDebt,
             _loanTokenBalance,
-            kinkMantissa,
+            SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            collateralRatioSpeedMantissa,
-            maxCollateralRatioMantissa
+            SURGE_MAX_DURATION,
+            MAX_COLLATERAL_RATIO_MANTISSA,
+            MIN_RATE,
+            SURGE_RATE,
+            MAX_RATE
         );
 
         uint userDebt = getDebtOf(balanceOf[msg.sender], debtSharesSupply, _currentTotalDebt);
@@ -304,7 +330,7 @@ contract Pool {
 
         // commit current state
         totalSupply = _currentTotalSupply;
-        totalDebt = _currentTotalDebt;
+        lastTotalDebt = _currentTotalDebt;
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         collateralBalanceOf[msg.sender] -= amount;
@@ -315,12 +341,12 @@ contract Pool {
         }
 
         // interactions
-        collateralToken.transfer(msg.sender, amount);
+        COLLATERAL_TOKEN.transfer(msg.sender, amount);
     }
 
     function borrow(uint amount) external {
-        uint _loanTokenBalance = loanToken.balanceOf(address(this));
-        (address _feeRecipient, uint _feeMantissa) = factory.getFee();
+        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
+        (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
             uint _accruedFeeShares,
@@ -330,13 +356,16 @@ contract Pool {
             totalSupply,
             lastAccrueInterestTime,
             block.timestamp,
-            totalDebt,
+            lastTotalDebt,
             _loanTokenBalance,
-            kinkMantissa,
+            SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            collateralRatioSpeedMantissa,
-            maxCollateralRatioMantissa
+            SURGE_MAX_DURATION,
+            MAX_COLLATERAL_RATIO_MANTISSA,
+            MIN_RATE,
+            SURGE_RATE,
+            MAX_RATE
         );
 
         uint _debtSharesSupply = debtSharesSupply;
@@ -345,7 +374,7 @@ contract Pool {
         require(userCollateralRatioMantissa <= _currentCollateralRatioMantissa, "Pool: user collateral ratio too high");
 
         uint _newUtil = getUtilizationMantissa(_currentTotalDebt + amount, (_currentTotalDebt + _loanTokenBalance));
-        require(_newUtil <= kinkMantissa, "Pool: utilization too high");
+        require(_newUtil <= SURGE_MANTISSA, "Pool: utilization too high");
 
         uint _shares = tokenToShares(amount, _currentTotalDebt, _debtSharesSupply);
         _currentTotalDebt += amount;
@@ -354,7 +383,7 @@ contract Pool {
         debtSharesBalanceOf[msg.sender] += _shares;
         debtSharesSupply = _debtSharesSupply + _shares;
         totalSupply = _currentTotalSupply;
-        totalDebt = _currentTotalDebt;
+        lastTotalDebt = _currentTotalDebt;
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Borrow(msg.sender, amount);
@@ -364,13 +393,13 @@ contract Pool {
         }
 
         // interactions
-        loanToken.transfer(msg.sender, amount);
+        LOAN_TOKEN.transfer(msg.sender, amount);
     }
 
     //TODO: Add a way to repay all debt including accrued interest
     function repay(address borrower, uint amount) external {
-        uint _loanTokenBalance = loanToken.balanceOf(address(this));
-        (address _feeRecipient, uint _feeMantissa) = factory.getFee();
+        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
+        (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
             uint _accruedFeeShares,
@@ -380,13 +409,16 @@ contract Pool {
             totalSupply,
             lastAccrueInterestTime,
             block.timestamp,
-            totalDebt,
+            lastTotalDebt,
             _loanTokenBalance,
-            kinkMantissa,
+            SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            collateralRatioSpeedMantissa,
-            maxCollateralRatioMantissa
+            SURGE_MAX_DURATION,
+            MAX_COLLATERAL_RATIO_MANTISSA,
+            MIN_RATE,
+            SURGE_RATE,
+            MAX_RATE
         );
 
         uint _debtSharesSupply = debtSharesSupply;
@@ -397,7 +429,7 @@ contract Pool {
         debtSharesBalanceOf[borrower] -= _shares;
         debtSharesSupply = _debtSharesSupply - _shares;
         totalSupply = _currentTotalSupply;
-        totalDebt = _currentTotalDebt;
+        lastTotalDebt = _currentTotalDebt;
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Repay(borrower, msg.sender, amount);
@@ -407,12 +439,12 @@ contract Pool {
         }
 
         // interactions
-        loanToken.transferFrom(msg.sender, address(this), amount);
+        LOAN_TOKEN.transferFrom(msg.sender, address(this), amount);
     }
 
     function liquidate(address borrower, uint amount) external {
-        uint _loanTokenBalance = loanToken.balanceOf(address(this));
-        (address _feeRecipient, uint _feeMantissa) = factory.getFee();
+        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
+        (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
             uint _accruedFeeShares,
@@ -422,13 +454,16 @@ contract Pool {
             totalSupply,
             lastAccrueInterestTime,
             block.timestamp,
-            totalDebt,
+            lastTotalDebt,
             _loanTokenBalance,
-            kinkMantissa,
+            SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            collateralRatioSpeedMantissa,
-            maxCollateralRatioMantissa
+            SURGE_MAX_DURATION,
+            MAX_COLLATERAL_RATIO_MANTISSA,
+            MIN_RATE,
+            SURGE_RATE,
+            MAX_RATE
         );
 
         uint collateralBalance = collateralBalanceOf[borrower];
@@ -448,7 +483,7 @@ contract Pool {
         debtSharesSupply = _debtSharesSupply - _shares;
         collateralBalanceOf[borrower] = collateralBalance - collateralReward;
         totalSupply = _currentTotalSupply;
-        totalDebt = _currentTotalDebt;
+        lastTotalDebt = _currentTotalDebt;
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Liquidate(borrower, amount, collateralReward);
@@ -458,8 +493,8 @@ contract Pool {
         }
 
         // interactions
-        loanToken.transferFrom(msg.sender, address(this), amount);
-        collateralToken.transfer(msg.sender, collateralReward);
+        LOAN_TOKEN.transferFrom(msg.sender, address(this), amount);
+        COLLATERAL_TOKEN.transfer(msg.sender, collateralReward);
     }
 
     event Transfer(address from, address to, uint value);
