@@ -43,17 +43,17 @@ contract Factory {
         IERC20 _loanToken,
         uint _maxCollateralRatioMantissa,
         uint _surgeMantissa,
-        uint _surgeMaxDuration,
+        uint _collateralRatioFallDuration,
+        uint _collateralRatioRecoveryDuration,
         uint _minRateMantissa,
         uint _surgeRateMantissa,
         uint _maxRateMantissa
     ) external returns (Pool) {
-        Pool pool = new Pool(_collateralToken, _loanToken, _maxCollateralRatioMantissa, _surgeMantissa, _surgeMaxDuration, _minRateMantissa, _surgeRateMantissa, _maxRateMantissa);
+        Pool pool = new Pool(_collateralToken, _loanToken, _maxCollateralRatioMantissa, _surgeMantissa, _collateralRatioFallDuration, _collateralRatioRecoveryDuration, _minRateMantissa, _surgeRateMantissa, _maxRateMantissa);
         isPool[pool] = true;
+        emit PoolDeployed(pools.length, address(pool), address(_collateralToken), address(_loanToken), _maxCollateralRatioMantissa, _surgeMantissa, _collateralRatioFallDuration, _collateralRatioRecoveryDuration, _minRateMantissa, _surgeRateMantissa, _maxRateMantissa);
         pools.push(pool);
-        emit PoolDeployed(address(pool), address(_collateralToken), address(_loanToken), _maxCollateralRatioMantissa, _surgeMantissa, _surgeMaxDuration, _minRateMantissa, _surgeRateMantissa, _maxRateMantissa);
         return pool;
     }
-    //TODO: add rate params
-    event PoolDeployed(address pool, address indexed collateralToken, address indexed loanToken, uint indexed maxCollateralRatioMantissa, uint surgeMantissa, uint surgeMaxDuration, uint minRateMantissa, uint surgeRateMantissa, uint maxRateMantissa);
+    event PoolDeployed(uint poolId, address pool, address indexed collateralToken, address indexed loanToken, uint indexed maxCollateralRatioMantissa, uint surgeMantissa, uint collateralRatioFallDuration, uint collateralRatioRecoveryDuration, uint minRateMantissa, uint surgeRateMantissa, uint maxRateMantissa);
 }

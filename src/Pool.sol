@@ -24,7 +24,8 @@ contract Pool {
     uint public immutable MIN_RATE;
     uint public immutable MAX_COLLATERAL_RATIO_MANTISSA;
     uint public immutable SURGE_MANTISSA;
-    uint public immutable SURGE_MAX_DURATION;
+    uint public immutable COLLATERAL_RATIO_FALL_DURATION;
+    uint public immutable COLLATERAL_RATIO_RECOVERY_DURATION;
     uint public lastCollateralRatioMantissa;
     uint public debtSharesSupply;
     mapping (address => uint) public debtSharesBalanceOf;
@@ -40,7 +41,8 @@ contract Pool {
         IERC20 _loanToken,
         uint _maxCollateralRatioMantissa,
         uint _surgeMantissa,
-        uint _surgeMaxDuration,
+        uint _collateralRatioFallDuration,
+        uint _collateralRatioRecoveryDuration,
         uint _minRateMantissa,
         uint _surgeRateMantissa,
         uint _maxRateMantissa
@@ -56,7 +58,8 @@ contract Pool {
         LOAN_TOKEN = _loanToken;
         MAX_COLLATERAL_RATIO_MANTISSA = _maxCollateralRatioMantissa;
         SURGE_MANTISSA = _surgeMantissa;
-        SURGE_MAX_DURATION = _surgeMaxDuration;
+        COLLATERAL_RATIO_FALL_DURATION = _collateralRatioFallDuration;
+        COLLATERAL_RATIO_RECOVERY_DURATION = _collateralRatioRecoveryDuration;
         lastCollateralRatioMantissa = _maxCollateralRatioMantissa;
         MIN_RATE = _minRateMantissa;
         SURGE_RATE = _surgeRateMantissa;
@@ -72,7 +75,8 @@ contract Pool {
         uint _surgeMantissa,
         uint _feeMantissa,
         uint _lastCollateralRatioMantissa,
-        uint _surgeMaxDuration,
+        uint _collateralRatioFallDuration,
+        uint _collateralRatioRecoveryDuration,
         uint _maxCollateralRatioMantissa,
         uint _minRateMantissa,
         uint _surgeRateMantissa,
@@ -100,7 +104,8 @@ contract Pool {
             _lastAccrueInterestTime,
             _now,
             _lastCollateralRatioMantissa,
-            _surgeMaxDuration,
+            _collateralRatioFallDuration,
+            _collateralRatioRecoveryDuration,
             _maxCollateralRatioMantissa,
             _surgeMantissa
         );
@@ -128,12 +133,6 @@ contract Pool {
         }
     }
 
-    function getSupplyRateMantissa(uint _borrowRate, uint _fee, uint _util) internal pure returns (uint) {
-        uint oneMinusFee = 1e18 - _fee;
-        uint rateToPool = _borrowRate * oneMinusFee / 1e18;
-        return _util * rateToPool / 1e18;
-    }
-
     function getUtilizationMantissa(uint _totalDebt, uint _supplied) internal pure returns (uint) {
         if(_supplied == 0) return 0;
         return _totalDebt * 1e18 / _supplied;
@@ -149,7 +148,8 @@ contract Pool {
         uint _lastAccrueInterestTime,
         uint _now,
         uint _lastCollateralRatioMantissa,
-        uint _surgeMaxDuration,
+        uint _collateralRatioFallDuration,
+        uint _collateralRatioRecoveryDuration,
         uint _maxCollateralRatioMantissa,
         uint _surgeMantissa
         ) internal pure returns (uint) {
@@ -158,7 +158,7 @@ contract Pool {
         if(_util <= _surgeMantissa) {
             if(_lastCollateralRatioMantissa == _maxCollateralRatioMantissa) return _lastCollateralRatioMantissa;
             uint timeDelta = _now - _lastAccrueInterestTime;
-            uint speed = _maxCollateralRatioMantissa / _surgeMaxDuration;
+            uint speed = _maxCollateralRatioMantissa / _collateralRatioRecoveryDuration;
             uint change = timeDelta * speed;
             if(_lastCollateralRatioMantissa + change > _maxCollateralRatioMantissa) {
                 return _maxCollateralRatioMantissa;
@@ -168,7 +168,7 @@ contract Pool {
         } else {
             if(_lastCollateralRatioMantissa == 0) return 0;
             uint timeDelta = _now - _lastAccrueInterestTime;
-            uint speed = _maxCollateralRatioMantissa / _surgeMaxDuration;
+            uint speed = _maxCollateralRatioMantissa / _collateralRatioFallDuration;
             uint change = timeDelta * speed;
             if(_lastCollateralRatioMantissa < change) {
                 return 0;
@@ -215,7 +215,8 @@ contract Pool {
             SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            SURGE_MAX_DURATION,
+            COLLATERAL_RATIO_FALL_DURATION,
+            COLLATERAL_RATIO_RECOVERY_DURATION,
             MAX_COLLATERAL_RATIO_MANTISSA,
             MIN_RATE,
             SURGE_RATE,
@@ -259,7 +260,8 @@ contract Pool {
             SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            SURGE_MAX_DURATION,
+            COLLATERAL_RATIO_FALL_DURATION,
+            COLLATERAL_RATIO_RECOVERY_DURATION,
             MAX_COLLATERAL_RATIO_MANTISSA,
             MIN_RATE,
             SURGE_RATE,
@@ -315,7 +317,8 @@ contract Pool {
             SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            SURGE_MAX_DURATION,
+            COLLATERAL_RATIO_FALL_DURATION,
+            COLLATERAL_RATIO_RECOVERY_DURATION,
             MAX_COLLATERAL_RATIO_MANTISSA,
             MIN_RATE,
             SURGE_RATE,
@@ -361,7 +364,8 @@ contract Pool {
             SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            SURGE_MAX_DURATION,
+            COLLATERAL_RATIO_FALL_DURATION,
+            COLLATERAL_RATIO_RECOVERY_DURATION,
             MAX_COLLATERAL_RATIO_MANTISSA,
             MIN_RATE,
             SURGE_RATE,
@@ -414,7 +418,8 @@ contract Pool {
             SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            SURGE_MAX_DURATION,
+            COLLATERAL_RATIO_FALL_DURATION,
+            COLLATERAL_RATIO_RECOVERY_DURATION,
             MAX_COLLATERAL_RATIO_MANTISSA,
             MIN_RATE,
             SURGE_RATE,
@@ -459,7 +464,8 @@ contract Pool {
             SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            SURGE_MAX_DURATION,
+            COLLATERAL_RATIO_FALL_DURATION,
+            COLLATERAL_RATIO_RECOVERY_DURATION,
             MAX_COLLATERAL_RATIO_MANTISSA,
             MIN_RATE,
             SURGE_RATE,

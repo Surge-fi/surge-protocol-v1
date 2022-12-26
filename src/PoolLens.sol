@@ -2,6 +2,7 @@
 pragma solidity 0.8.17;
 
 import "./Pool.sol";
+import "./Factory.sol";
 
 contract PoolLens {
 
@@ -48,6 +49,62 @@ contract PoolLens {
         uint _totalSupply = Pool(pool).totalSupply();
         if(_totalSupply == 0) return 0;
         return Pool(pool).balanceOf(user) * (_totalDebt + _loanTokenBalance) / _totalSupply;
+    }
+
+    function getDebtOf(address pool, address user) external view returns (uint) {
+        uint _debtSharesSupply = Pool(pool).debtSharesSupply();
+        if (_debtSharesSupply == 0) return 0;
+        uint _totalDebt = getCurrentTotalDebt(pool);
+        uint _userDebtShares = Pool(pool).debtSharesBalanceOf(user);
+        return _userDebtShares * _totalDebt / _debtSharesSupply;
+    }
+
+    function getCollateralRatioMantissa(address pool) external view returns (uint) {
+        uint _lastAccrueInterestTime = Pool(pool).lastAccrueInterestTime();
+        uint _lastCollateralRatioMantissa = Pool(pool).lastCollateralRatioMantissa();
+
+        if(_lastAccrueInterestTime == block.timestamp) return _lastCollateralRatioMantissa;
+        
+        uint _util = getUtilizationMantissa(pool);
+        uint _surgeMantissa = Pool(pool).SURGE_MANTISSA();
+        uint _maxCollateralRatioMantissa = Pool(pool).MAX_COLLATERAL_RATIO_MANTISSA();
+        uint _collateralRatioFallDuration = Pool(pool).COLLATERAL_RATIO_FALL_DURATION();
+        uint _collateralRatioRecoveryDuration = Pool(pool).COLLATERAL_RATIO_RECOVERY_DURATION();
+
+        if(_util <= _surgeMantissa) {
+            if(_lastCollateralRatioMantissa == _maxCollateralRatioMantissa) return _lastCollateralRatioMantissa;
+            uint timeDelta = block.timestamp - _lastAccrueInterestTime;
+            uint speed = _maxCollateralRatioMantissa / _collateralRatioRecoveryDuration;
+            uint change = timeDelta * speed;
+            if(_lastCollateralRatioMantissa + change > _maxCollateralRatioMantissa) {
+                return _maxCollateralRatioMantissa;
+            } else {
+                return _lastCollateralRatioMantissa + change;
+            }
+        } else {
+            if(_lastCollateralRatioMantissa == 0) return 0;
+            uint timeDelta = block.timestamp - _lastAccrueInterestTime;
+            uint speed = _maxCollateralRatioMantissa / _collateralRatioFallDuration;
+            uint change = timeDelta * speed;
+            if(_lastCollateralRatioMantissa < change) {
+                return 0;
+            } else {
+                return _lastCollateralRatioMantissa - change;
+            }
+        }
+    }
+
+    function getSuppliedLoanTokens(address pool) external view returns (uint) {
+        return getCurrentTotalDebt(pool) + IERC20(Pool(pool).LOAN_TOKEN()).balanceOf(pool);
+    }
+
+    function getSupplyRateMantissa(address pool) external view returns (uint) {
+        uint _fee = Factory(address(Pool(pool).FACTORY())).feeMantissa();
+        uint _borrowRate = getBorrowRateMantissa(pool);
+        uint _util = getUtilizationMantissa(pool);
+        uint oneMinusFee = 1e18 - _fee;
+        uint rateToPool = _borrowRate * oneMinusFee / 1e18;
+        return _util * rateToPool / 1e18;
     }
 
 }
