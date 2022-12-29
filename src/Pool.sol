@@ -19,9 +19,9 @@ contract Pool {
     IERC20 public immutable LOAN_TOKEN;
     uint8 public constant decimals = 18;
     uint public constant RATE_CEILING = 100e18; // 10,000% borrow APR
+    uint public immutable MIN_RATE;
     uint public immutable SURGE_RATE;
     uint public immutable MAX_RATE;
-    uint public immutable MIN_RATE;
     uint public immutable MAX_COLLATERAL_RATIO_MANTISSA;
     uint public immutable SURGE_MANTISSA;
     uint public immutable COLLATERAL_RATIO_FALL_DURATION;
@@ -325,7 +325,7 @@ contract Pool {
             MAX_RATE
         );
 
-        uint userDebt = getDebtOf(balanceOf[msg.sender], debtSharesSupply, _currentTotalDebt);
+        uint userDebt = getDebtOf(debtSharesBalanceOf[msg.sender], debtSharesSupply, _currentTotalDebt);
         if(userDebt > 0) {
             uint userCollateralRatioMantissa = userDebt * 1e18 / (collateralBalanceOf[msg.sender] - amount);
             require(userCollateralRatioMantissa <= _currentCollateralRatioMantissa, "Pool: user collateral ratio too high");
@@ -373,7 +373,7 @@ contract Pool {
         );
 
         uint _debtSharesSupply = debtSharesSupply;
-        uint userDebt = getDebtOf(balanceOf[msg.sender], _debtSharesSupply, _currentTotalDebt) + amount;
+        uint userDebt = getDebtOf(debtSharesBalanceOf[msg.sender], _debtSharesSupply, _currentTotalDebt) + amount;
         uint userCollateralRatioMantissa = userDebt * 1e18 / collateralBalanceOf[msg.sender];
         require(userCollateralRatioMantissa <= _currentCollateralRatioMantissa, "Pool: user collateral ratio too high");
 
@@ -474,15 +474,21 @@ contract Pool {
 
         uint collateralBalance = collateralBalanceOf[borrower];
         uint _debtSharesSupply = debtSharesSupply;
-        uint userDebt = getDebtOf(balanceOf[borrower], _debtSharesSupply, _currentTotalDebt);
+        uint userDebt = getDebtOf(debtSharesBalanceOf[borrower], _debtSharesSupply, _currentTotalDebt);
         uint userCollateralRatioMantissa = userDebt * 1e18 / collateralBalance;
         require(userCollateralRatioMantissa > _currentCollateralRatioMantissa, "Pool: borrower not liquidatable");
 
-        uint _shares = tokenToShares(amount, _currentTotalDebt, _debtSharesSupply);
+        uint _shares;
+        uint collateralReward;
+        if(amount == userDebt) {
+            collateralReward = collateralBalance;
+            _shares = debtSharesBalanceOf[borrower];
+        } else {
+            uint userInvertedCollateralRatioMantissa = collateralBalance * 1e18 / userDebt;
+            collateralReward = amount * userInvertedCollateralRatioMantissa / 1e18;
+            _shares = tokenToShares(amount, _currentTotalDebt, _debtSharesSupply);
+        }
         _currentTotalDebt -= amount;
-
-        uint userInvertedCollateralRatioMantissa = collateralBalance * 1e18 / userDebt;
-        uint collateralReward = amount * userInvertedCollateralRatioMantissa / 1e18;
 
         // commit current state
         debtSharesBalanceOf[borrower] -= _shares;
