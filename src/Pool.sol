@@ -268,6 +268,10 @@ contract Pool {
             MAX_RATE
         );
 
+        if (amount == type(uint).max) {
+            amount = balanceOf[msg.sender] * (_currentTotalDebt + _loanTokenBalance) / _currentTotalSupply;       
+        }
+        
         uint _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply);
         _currentTotalSupply -= _shares;
 
@@ -427,6 +431,11 @@ contract Pool {
         );
 
         uint _debtSharesSupply = debtSharesSupply;
+
+        if(amount == type(uint).max) {
+            amount = getDebtOf(debtSharesBalanceOf[borrower], _debtSharesSupply, _currentTotalDebt);
+        }
+
         uint _shares = tokenToShares(amount, _currentTotalDebt, _debtSharesSupply);
         _currentTotalDebt -= amount;
 
@@ -480,7 +489,7 @@ contract Pool {
 
         uint _shares;
         uint collateralReward;
-        if(amount == userDebt) {
+        if(amount == type(uint).max || amount == userDebt) {
             collateralReward = collateralBalance;
             _shares = debtSharesBalanceOf[borrower];
         } else {
