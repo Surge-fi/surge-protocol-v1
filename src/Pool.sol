@@ -53,6 +53,8 @@ contract Pool {
         require(_minRateMantissa <= _surgeRateMantissa, "Pool: _minRateMantissa too high");
         require(_surgeRateMantissa <= _maxRateMantissa, "Pool: _surgeRateMantissa too high");
         require(_maxRateMantissa <= RATE_CEILING, "Pool: _maxRateMantissa too high");
+        require(_collateralRatioFallDuration > 0, "Pool: _collateralRatioFallDuration too low");
+        require(_collateralRatioRecoveryDuration > 0, "Pool: _collateralRatioRecoveryDuration too low");
         FACTORY = IFactory(msg.sender);
         COLLATERAL_TOKEN = _collateralToken;
         LOAN_TOKEN = _loanToken;
