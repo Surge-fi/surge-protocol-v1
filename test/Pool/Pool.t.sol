@@ -7,7 +7,7 @@ import "../../src/Factory.sol";
 import "../../src/PoolLens.sol";
 import "../mocks/ERC20.sol";
 
-contract PoolTest is Test, Pool(IERC20(address(0)), IERC20(address(1)), 1, 0, 0, 0, 0, 0, 0) {
+contract PoolTest is Test, Pool(IERC20(address(0)), IERC20(address(1)), 1, 1, 1, 1, 1, 1, 1) {
 
     Factory factory;
     PoolLens lens;

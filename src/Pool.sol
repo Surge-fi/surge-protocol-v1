@@ -26,6 +26,8 @@ contract Pool {
     uint public immutable SURGE_MANTISSA;
     uint public immutable COLLATERAL_RATIO_FALL_DURATION;
     uint public immutable COLLATERAL_RATIO_RECOVERY_DURATION;
+    bytes4 private constant TRANSFER_SELECTOR = bytes4(keccak256(bytes('transfer(address,uint256)')));
+    bytes4 private constant TRANSFER_FROM_SELECTOR = bytes4(keccak256(bytes('transferFrom(address,address,uint256)')));
     uint public lastCollateralRatioMantissa;
     uint public debtSharesSupply;
     mapping (address => uint) public debtSharesBalanceOf;
@@ -48,13 +50,13 @@ contract Pool {
         uint _maxRateMantissa
     ) {
         require(_collateralToken != _loanToken, "Pool: collateral and loan tokens are the same");
+        require(_collateralRatioFallDuration > 0, "Pool: _collateralRatioFallDuration too low");
+        require(_collateralRatioRecoveryDuration > 0, "Pool: _collateralRatioRecoveryDuration too low");
         require(_maxCollateralRatioMantissa > 0, "Pool: _maxCollateralRatioMantissa too low");
         require(_surgeMantissa <= 1e18, "Pool: _surgeMantissa too high");
         require(_minRateMantissa <= _surgeRateMantissa, "Pool: _minRateMantissa too high");
         require(_surgeRateMantissa <= _maxRateMantissa, "Pool: _surgeRateMantissa too high");
         require(_maxRateMantissa <= RATE_CEILING, "Pool: _maxRateMantissa too high");
-        require(_collateralRatioFallDuration > 0, "Pool: _collateralRatioFallDuration too low");
-        require(_collateralRatioRecoveryDuration > 0, "Pool: _collateralRatioRecoveryDuration too low");
         FACTORY = IFactory(msg.sender);
         COLLATERAL_TOKEN = _collateralToken;
         LOAN_TOKEN = _loanToken;
@@ -66,6 +68,16 @@ contract Pool {
         MIN_RATE = _minRateMantissa;
         SURGE_RATE = _surgeRateMantissa;
         MAX_RATE = _maxRateMantissa;
+    }
+
+    function safeTransfer(IERC20 token, address to, uint value) internal {
+        (bool success, bytes memory data) = address(token).call(abi.encodeWithSelector(TRANSFER_SELECTOR, to, value));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), 'Pool: TRANSFER_FAILED');
+    }
+
+    function safeTransferFrom(IERC20 token, address from, address to, uint value) internal {
+        (bool success, bytes memory data) = address(token).call(abi.encodeWithSelector(TRANSFER_FROM_SELECTOR, from, to, value));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), 'Pool: TRANSFER_FROM_FAILED');
     }
 
     function getCurrentState(
@@ -242,7 +254,7 @@ contract Pool {
         }
 
         // interactions
-        LOAN_TOKEN.transferFrom(msg.sender, address(this), amount);
+        safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), amount);
     }
 
     function divest(uint amount) external {
@@ -291,13 +303,13 @@ contract Pool {
         }
 
         // interactions
-        LOAN_TOKEN.transfer(msg.sender, amount);
+        safeTransfer(LOAN_TOKEN, msg.sender, amount);
     }
 
     function secure (address to, uint amount) external {
         require(amount > 0, "Pool: amount too low");
         collateralBalanceOf[to] += amount;
-        COLLATERAL_TOKEN.transferFrom(msg.sender, address(this), amount);
+        safeTransferFrom(COLLATERAL_TOKEN, msg.sender, address(this), amount);
         emit Secure(to, msg.sender, amount);
     }
 
@@ -350,7 +362,7 @@ contract Pool {
         }
 
         // interactions
-        COLLATERAL_TOKEN.transfer(msg.sender, amount);
+        safeTransfer(COLLATERAL_TOKEN, msg.sender, amount);
     }
 
     function borrow(uint amount) external {
@@ -403,7 +415,7 @@ contract Pool {
         }
 
         // interactions
-        LOAN_TOKEN.transfer(msg.sender, amount);
+        safeTransfer(LOAN_TOKEN, msg.sender, amount);
     }
 
     //TODO: Add a way to repay all debt including accrued interest
@@ -455,7 +467,7 @@ contract Pool {
         }
 
         // interactions
-        LOAN_TOKEN.transferFrom(msg.sender, address(this), amount);
+        safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), amount);
     }
 
     function liquidate(address borrower, uint amount) external {
@@ -516,8 +528,8 @@ contract Pool {
         }
 
         // interactions
-        LOAN_TOKEN.transferFrom(msg.sender, address(this), amount);
-        COLLATERAL_TOKEN.transfer(msg.sender, collateralReward);
+        safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), amount);
+        safeTransfer(COLLATERAL_TOKEN, msg.sender, collateralReward);
     }
 
     event Transfer(address from, address to, uint value);
