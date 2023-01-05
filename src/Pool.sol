@@ -18,7 +18,7 @@ contract Pool {
     IERC20 public immutable COLLATERAL_TOKEN;
     IERC20 public immutable LOAN_TOKEN;
     uint8 public constant decimals = 18;
-    uint public constant RATE_CEILING = 100e18; // 10,000% borrow APR
+    uint private constant RATE_CEILING = 100e18; // 10,000% borrow APR
     uint public immutable MIN_RATE;
     uint public immutable SURGE_RATE;
     uint public immutable MAX_RATE;
@@ -167,41 +167,48 @@ contract Pool {
         uint _maxCollateralRatioMantissa,
         uint _surgeMantissa
         ) internal pure returns (uint) {
-        if(_lastAccrueInterestTime == _now) return _lastCollateralRatioMantissa;
+        unchecked {
+            if(_lastAccrueInterestTime == _now) return _lastCollateralRatioMantissa;
 
-        if(_util <= _surgeMantissa) {
-            if(_lastCollateralRatioMantissa == _maxCollateralRatioMantissa) return _lastCollateralRatioMantissa;
-            uint timeDelta = _now - _lastAccrueInterestTime;
-            uint speed = _maxCollateralRatioMantissa / _collateralRatioRecoveryDuration;
-            uint change = timeDelta * speed;
-            if(_lastCollateralRatioMantissa + change > _maxCollateralRatioMantissa) {
-                return _maxCollateralRatioMantissa;
+            if(_util <= _surgeMantissa) {
+                if(_lastCollateralRatioMantissa == _maxCollateralRatioMantissa) return _lastCollateralRatioMantissa;
+                uint timeDelta = _now - _lastAccrueInterestTime;
+                uint speed = _maxCollateralRatioMantissa / _collateralRatioRecoveryDuration;
+                uint change = timeDelta * speed;
+                if(_lastCollateralRatioMantissa + change >= _maxCollateralRatioMantissa) {
+                    return _maxCollateralRatioMantissa;
+                } else {
+                    return _lastCollateralRatioMantissa + change;
+                }
             } else {
-                return _lastCollateralRatioMantissa + change;
-            }
-        } else {
-            if(_lastCollateralRatioMantissa == 0) return 0;
-            uint timeDelta = _now - _lastAccrueInterestTime;
-            uint speed = _maxCollateralRatioMantissa / _collateralRatioFallDuration;
-            uint change = timeDelta * speed;
-            if(_lastCollateralRatioMantissa < change) {
-                return 0;
-            } else {
-                return _lastCollateralRatioMantissa - change;
+                if(_lastCollateralRatioMantissa == 0) return 0;
+                uint timeDelta = _now - _lastAccrueInterestTime;
+                uint speed = _maxCollateralRatioMantissa / _collateralRatioFallDuration;
+                uint change = timeDelta * speed;
+                if(_lastCollateralRatioMantissa <= change) {
+                    return 0;
+                } else {
+                    return _lastCollateralRatioMantissa - change;
+                }
             }
         }
     }
 
     function transfer(address to, uint amount) external returns (bool) {
         balanceOf[msg.sender] -= amount;
-        balanceOf[to] += amount;
+        unchecked {
+            balanceOf[to] += amount;
+        }
         emit Transfer(msg.sender, to, amount);
         return true;
     }
 
     function transferFrom(address from, address to, uint amount) external returns (bool) {
+        allowance[from][msg.sender] -= amount;
         balanceOf[from] -= amount;
-        balanceOf[to] += amount;
+        unchecked {
+            balanceOf[to] += amount;
+        }
         emit Transfer(from, to, amount);
         return true;
     }
