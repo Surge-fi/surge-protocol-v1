@@ -81,69 +81,74 @@ contract Pool {
     }
 
     function getCurrentState(
-        uint _totalSupply,
-        uint _lastAccrueInterestTime,
-        uint _now,
-        uint _totalDebt,
         uint _loanTokenBalance,
-        uint _surgeMantissa,
         uint _feeMantissa,
         uint _lastCollateralRatioMantissa,
-        uint _collateralRatioFallDuration,
-        uint _collateralRatioRecoveryDuration,
-        uint _maxCollateralRatioMantissa,
-        uint _minRateMantissa,
-        uint _surgeRateMantissa,
-        uint _maxRateMantissa
-        ) internal pure returns (
+        uint _totalSupply,
+        uint _lastAccrueInterestTime,
+        uint _totalDebt
+        ) internal view returns (
             uint _currentTotalSupply,
             uint _accruedFeeShares,
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) {
         
+        // 1. Set default return values
         _currentTotalSupply = _totalSupply;
         _currentTotalDebt = _totalDebt;
         _currentCollateralRatioMantissa = _lastCollateralRatioMantissa;
         // _accruedFeeShares = 0;
 
-        uint _timeDelta = _now - _lastAccrueInterestTime;
+        // 2. Get the time passed since the last interest accrual
+        uint _timeDelta = block.timestamp - _lastAccrueInterestTime;
+        
+        // 3. If the time passed is 0, return the current values
         if(_timeDelta == 0) return (_currentTotalSupply, _accruedFeeShares, _currentCollateralRatioMantissa, _currentTotalDebt);
         
+        // 4. Calculate the supplied value
         uint _supplied = _totalDebt + _loanTokenBalance;
+        // 5. Calculate the utilization
         uint _util = getUtilizationMantissa(_totalDebt, _supplied);
 
+        // 6. Calculate the collateral ratio
         _currentCollateralRatioMantissa = getCollateralRatioMantissa(
             _util,
             _lastAccrueInterestTime,
-            _now,
+            block.timestamp,
             _lastCollateralRatioMantissa,
-            _collateralRatioFallDuration,
-            _collateralRatioRecoveryDuration,
-            _maxCollateralRatioMantissa,
-            _surgeMantissa
+            COLLATERAL_RATIO_FALL_DURATION,
+            COLLATERAL_RATIO_RECOVERY_DURATION,
+            MAX_COLLATERAL_RATIO_MANTISSA,
+            SURGE_MANTISSA
         );
 
+        // 7. If there is no debt, return the current values
         if(_totalDebt == 0) return (_currentTotalSupply, _accruedFeeShares, _currentCollateralRatioMantissa, _currentTotalDebt);
 
-        uint _borrowRate = getBorrowRateMantissa(_util, _surgeMantissa, _minRateMantissa, _surgeRateMantissa, _maxRateMantissa);
-        uint _interest = _totalDebt * _borrowRate / 1e18 * _timeDelta / 365 days;
+        // 8. Calculate the borrow rate
+        uint _borrowRate = getBorrowRateMantissa(_util, SURGE_MANTISSA, MIN_RATE, SURGE_RATE, MAX_RATE);
+        // 9. Calculate the interest
+        uint _interest = _totalDebt * _borrowRate * _timeDelta / (365 days * 1e18);
+        // 10. Update the total debt
         _currentTotalDebt += _interest;
         
+        // 11. If there is no fee, return the current values
         if(_feeMantissa == 0) return (_currentTotalSupply, _accruedFeeShares, _currentCollateralRatioMantissa, _currentTotalDebt);
+        // 12. Calculate the fee
         uint fee = _interest * _feeMantissa / 1e18;
+        // 13. Calculate the accrued fee shares
         _accruedFeeShares = fee * _totalSupply / _supplied;
+        // 14. Update the total supply
         _currentTotalSupply += _accruedFeeShares;
     }
 
     function getBorrowRateMantissa(uint _util, uint _surgeMantissa, uint _minRateMantissa, uint _surgeRateMantissa, uint _maxRateMantissa) internal pure returns (uint) {
         if(_util <= _surgeMantissa) {
-            uint ratePerUnit = (_surgeRateMantissa - _minRateMantissa) * 1e18 / _surgeMantissa;
-            return ratePerUnit * _util / 1e18 + _minRateMantissa;
+            return (_surgeRateMantissa - _minRateMantissa) * 1e18 * _util / _surgeMantissa / 1e18 + _minRateMantissa;
         } else {
             uint excessUtil = (_util - _surgeMantissa);
-            uint ratePerExcessUnit = (_maxRateMantissa - _surgeRateMantissa) * 1e18 / (1e18 - _surgeMantissa);
-            return ratePerExcessUnit * excessUtil / 1e18 + _surgeRateMantissa;
+            return (_maxRateMantissa - _surgeRateMantissa) * 1e18 * excessUtil / (1e18 - _surgeMantissa) / 1e18 + _surgeRateMantissa;
         }
     }
 
@@ -169,25 +174,37 @@ contract Pool {
         ) internal pure returns (uint) {
         unchecked {
             if(_lastAccrueInterestTime == _now) return _lastCollateralRatioMantissa;
-
+            
+            // If utilization is less than or equal to surge, we are increasing collateral ratio
             if(_util <= _surgeMantissa) {
+                // The collateral ratio can only increase if it is less than the max collateral ratio
                 if(_lastCollateralRatioMantissa == _maxCollateralRatioMantissa) return _lastCollateralRatioMantissa;
+
+                // If the collateral ratio can increase, we calculate the increase
                 uint timeDelta = _now - _lastAccrueInterestTime;
-                uint speed = _maxCollateralRatioMantissa / _collateralRatioRecoveryDuration;
-                uint change = timeDelta * speed;
+                uint change = timeDelta * _maxCollateralRatioMantissa / _collateralRatioRecoveryDuration;
+
+                // If the change in collateral ratio is greater than the max collateral ratio, we set the collateral ratio to the max collateral ratio
                 if(_lastCollateralRatioMantissa + change >= _maxCollateralRatioMantissa) {
                     return _maxCollateralRatioMantissa;
                 } else {
+                    // Otherwise we increase the collateral ratio by the change
                     return _lastCollateralRatioMantissa + change;
                 }
             } else {
+                // If utilization is greater than the surge, we are decreasing collateral ratio
+                // The collateral ratio can only decrease if it is greater than 0
                 if(_lastCollateralRatioMantissa == 0) return 0;
+
+                // If the collateral ratio can decrease, we calculate the decrease
                 uint timeDelta = _now - _lastAccrueInterestTime;
-                uint speed = _maxCollateralRatioMantissa / _collateralRatioFallDuration;
-                uint change = timeDelta * speed;
+                uint change = timeDelta * _maxCollateralRatioMantissa / _collateralRatioFallDuration;
+
+                // If the change in collateral ratio is greater than the collateral ratio, we set the collateral ratio to 0
                 if(_lastCollateralRatioMantissa <= change) {
                     return 0;
                 } else {
+                    // Otherwise we decrease the collateral ratio by the change
                     return _lastCollateralRatioMantissa - change;
                 }
             }
@@ -195,6 +212,7 @@ contract Pool {
     }
 
     function transfer(address to, uint amount) external returns (bool) {
+        require(to != address(0), "Pool: to cannot be address 0");
         balanceOf[msg.sender] -= amount;
         unchecked {
             balanceOf[to] += amount;
@@ -204,6 +222,7 @@ contract Pool {
     }
 
     function transferFrom(address from, address to, uint amount) external returns (bool) {
+        require(to != address(0), "Pool: to cannot be address 0");
         allowance[from][msg.sender] -= amount;
         balanceOf[from] -= amount;
         unchecked {
@@ -228,20 +247,12 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            totalSupply,
-            lastAccrueInterestTime,
-            block.timestamp,
-            lastTotalDebt,
             _loanTokenBalance,
-            SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            COLLATERAL_RATIO_FALL_DURATION,
-            COLLATERAL_RATIO_RECOVERY_DURATION,
-            MAX_COLLATERAL_RATIO_MANTISSA,
-            MIN_RATE,
-            SURGE_RATE,
-            MAX_RATE
+            totalSupply,
+            lastAccrueInterestTime,
+            lastTotalDebt
         );
 
         uint _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply);
@@ -273,21 +284,14 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            totalSupply,
-            lastAccrueInterestTime,
-            block.timestamp,
-            lastTotalDebt,
             _loanTokenBalance,
-            SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            COLLATERAL_RATIO_FALL_DURATION,
-            COLLATERAL_RATIO_RECOVERY_DURATION,
-            MAX_COLLATERAL_RATIO_MANTISSA,
-            MIN_RATE,
-            SURGE_RATE,
-            MAX_RATE
+            totalSupply,
+            lastAccrueInterestTime,
+            lastTotalDebt
         );
+
 
         if (amount == type(uint).max) {
             amount = balanceOf[msg.sender] * (_currentTotalDebt + _loanTokenBalance) / _currentTotalSupply;       
@@ -314,7 +318,6 @@ contract Pool {
     }
 
     function secure (address to, uint amount) external {
-        require(amount > 0, "Pool: amount too low");
         collateralBalanceOf[to] += amount;
         safeTransferFrom(COLLATERAL_TOKEN, msg.sender, address(this), amount);
         emit Secure(to, msg.sender, amount);
@@ -334,20 +337,12 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            totalSupply,
-            lastAccrueInterestTime,
-            block.timestamp,
-            lastTotalDebt,
             _loanTokenBalance,
-            SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            COLLATERAL_RATIO_FALL_DURATION,
-            COLLATERAL_RATIO_RECOVERY_DURATION,
-            MAX_COLLATERAL_RATIO_MANTISSA,
-            MIN_RATE,
-            SURGE_RATE,
-            MAX_RATE
+            totalSupply,
+            lastAccrueInterestTime,
+            lastTotalDebt
         );
 
         uint userDebt = getDebtOf(debtSharesBalanceOf[msg.sender], debtSharesSupply, _currentTotalDebt);
@@ -381,20 +376,12 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            totalSupply,
-            lastAccrueInterestTime,
-            block.timestamp,
-            lastTotalDebt,
             _loanTokenBalance,
-            SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            COLLATERAL_RATIO_FALL_DURATION,
-            COLLATERAL_RATIO_RECOVERY_DURATION,
-            MAX_COLLATERAL_RATIO_MANTISSA,
-            MIN_RATE,
-            SURGE_RATE,
-            MAX_RATE
+            totalSupply,
+            lastAccrueInterestTime,
+            lastTotalDebt
         );
 
         uint _debtSharesSupply = debtSharesSupply;
@@ -435,20 +422,12 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            totalSupply,
-            lastAccrueInterestTime,
-            block.timestamp,
-            lastTotalDebt,
             _loanTokenBalance,
-            SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            COLLATERAL_RATIO_FALL_DURATION,
-            COLLATERAL_RATIO_RECOVERY_DURATION,
-            MAX_COLLATERAL_RATIO_MANTISSA,
-            MIN_RATE,
-            SURGE_RATE,
-            MAX_RATE
+            totalSupply,
+            lastAccrueInterestTime,
+            lastTotalDebt
         );
 
         uint _debtSharesSupply = debtSharesSupply;
@@ -486,20 +465,12 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            totalSupply,
-            lastAccrueInterestTime,
-            block.timestamp,
-            lastTotalDebt,
             _loanTokenBalance,
-            SURGE_MANTISSA,
             _feeMantissa,
             lastCollateralRatioMantissa,
-            COLLATERAL_RATIO_FALL_DURATION,
-            COLLATERAL_RATIO_RECOVERY_DURATION,
-            MAX_COLLATERAL_RATIO_MANTISSA,
-            MIN_RATE,
-            SURGE_RATE,
-            MAX_RATE
+            totalSupply,
+            lastAccrueInterestTime,
+            lastTotalDebt
         );
 
         uint collateralBalance = collateralBalanceOf[borrower];
@@ -508,39 +479,42 @@ contract Pool {
         uint userCollateralRatioMantissa = userDebt * 1e18 / collateralBalance;
         require(userCollateralRatioMantissa > _currentCollateralRatioMantissa, "Pool: borrower not liquidatable");
 
+        address _borrower = borrower; // avoid stack too deep
+        uint _amount = amount;
         uint _shares;
         uint collateralReward;
-        if(amount == type(uint).max || amount == userDebt) {
+        if(_amount == type(uint).max || _amount == userDebt) {
             collateralReward = collateralBalance;
-            _shares = debtSharesBalanceOf[borrower];
+            _shares = debtSharesBalanceOf[_borrower];
         } else {
             uint userInvertedCollateralRatioMantissa = collateralBalance * 1e18 / userDebt;
-            collateralReward = amount * userInvertedCollateralRatioMantissa / 1e18;
-            _shares = tokenToShares(amount, _currentTotalDebt, _debtSharesSupply);
+            collateralReward = _amount * userInvertedCollateralRatioMantissa / 1e18;
+            _shares = tokenToShares(_amount, _currentTotalDebt, _debtSharesSupply);
         }
         _currentTotalDebt -= amount;
 
         // commit current state
-        debtSharesBalanceOf[borrower] -= _shares;
+        debtSharesBalanceOf[_borrower] -= _shares;
         debtSharesSupply = _debtSharesSupply - _shares;
-        collateralBalanceOf[borrower] = collateralBalance - collateralReward;
+        collateralBalanceOf[_borrower] = collateralBalance - collateralReward;
         totalSupply = _currentTotalSupply;
         lastTotalDebt = _currentTotalDebt;
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
-        emit Liquidate(borrower, amount, collateralReward);
+        emit Liquidate(_borrower, _amount, collateralReward);
         if(_accruedFeeShares > 0) {
-            balanceOf[_feeRecipient] += _accruedFeeShares;
-            emit Transfer(address(0), _feeRecipient, _accruedFeeShares);
+            address __feeRecipient = _feeRecipient; // avoid stack too deep
+            balanceOf[__feeRecipient] += _accruedFeeShares;
+            emit Transfer(address(0), __feeRecipient, _accruedFeeShares);
         }
 
         // interactions
-        safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), amount);
+        safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), _amount);
         safeTransfer(COLLATERAL_TOKEN, msg.sender, collateralReward);
     }
 
-    event Transfer(address from, address to, uint value);
-    event Approval(address owner, address spender, uint value);
+    event Transfer(address indexed from, address indexed to, uint value);
+    event Approval(address indexed owner, address indexed spender, uint value);
     event Invest(address indexed user, uint amount);
     event Divest(address indexed user, uint amount);
     event Borrow(address indexed user, uint amount);

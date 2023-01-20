@@ -6,6 +6,7 @@ import "./Pool.sol";
 contract Factory {
 
     address public operator;
+    address public pendingOperator;
     address public feeRecipient;
     uint public feeMantissa;
     uint public constant MAX_FEE_MANTISSA = 0.2e18;
@@ -30,6 +31,17 @@ contract Factory {
         require(_feeMantissa <= MAX_FEE_MANTISSA, "Factory: fee too high");
         if(_feeMantissa > 0) require(feeRecipient != address(0), "Factory: fee recipient is zero address");
         feeMantissa = _feeMantissa;
+    }
+
+    function setPendingOperator(address _pendingOperator) external {
+        require(msg.sender == operator, "Factory: not operator");
+        pendingOperator = _pendingOperator;
+    }
+
+    function acceptOperator() external {
+        require(msg.sender == pendingOperator, "Factory: not pending operator");
+        operator = pendingOperator;
+        pendingOperator = address(0);
     }
 
     function getFee() external view returns (address, uint) {
