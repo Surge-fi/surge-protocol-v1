@@ -53,7 +53,7 @@ contract Pool {
         require(_collateralRatioFallDuration > 0, "Pool: _collateralRatioFallDuration too low");
         require(_collateralRatioRecoveryDuration > 0, "Pool: _collateralRatioRecoveryDuration too low");
         require(_maxCollateralRatioMantissa > 0, "Pool: _maxCollateralRatioMantissa too low");
-        require(_surgeMantissa <= 1e18, "Pool: _surgeMantissa too high");
+        require(_surgeMantissa < 1e18, "Pool: _surgeMantissa too high");
         require(_minRateMantissa <= _surgeRateMantissa, "Pool: _minRateMantissa too high");
         require(_surgeRateMantissa <= _maxRateMantissa, "Pool: _surgeRateMantissa too high");
         require(_maxRateMantissa <= RATE_CEILING, "Pool: _maxRateMantissa too high");
