@@ -12,11 +12,17 @@ interface IFactory {
     function getFee() external view returns (address to, uint feeMantissa);
 }
 
+/// @title Pool
+/// @author Moaz Mohsen & Nour Haridy
+/// @notice A Surge lending pool for a single collateral and loan token pair
+/// @dev This contract asssumes that the collateral and loan tokens are valid non-rebasing ERC20-compliant tokens
 contract Pool {
 
     IFactory public immutable FACTORY;
     IERC20 public immutable COLLATERAL_TOKEN;
     IERC20 public immutable LOAN_TOKEN;
+    string public symbol;
+    string public name;
     uint8 public constant decimals = 18;
     uint private constant RATE_CEILING = 100e18; // 10,000% borrow APR
     uint public immutable MIN_RATE;
@@ -38,7 +44,9 @@ contract Pool {
     mapping (address => uint) public balanceOf;
     mapping (address => uint) public collateralBalanceOf;
 
-    constructor (
+    constructor(
+        string memory _symbol,
+        string memory _name,
         IERC20 _collateralToken,
         IERC20 _loanToken,
         uint _maxCollateralRatioMantissa,
@@ -57,6 +65,8 @@ contract Pool {
         require(_minRateMantissa <= _surgeRateMantissa, "Pool: _minRateMantissa too high");
         require(_surgeRateMantissa <= _maxRateMantissa, "Pool: _surgeRateMantissa too high");
         require(_maxRateMantissa <= RATE_CEILING, "Pool: _maxRateMantissa too high");
+        symbol = _symbol;
+        name = _name;
         FACTORY = IFactory(msg.sender);
         COLLATERAL_TOKEN = _collateralToken;
         LOAN_TOKEN = _loanToken;
@@ -129,7 +139,7 @@ contract Pool {
         // 8. Calculate the borrow rate
         uint _borrowRate = getBorrowRateMantissa(_util, SURGE_MANTISSA, MIN_RATE, SURGE_RATE, MAX_RATE);
         // 9. Calculate the interest
-        uint _interest = _totalDebt * _borrowRate * _timeDelta / (365 days * 1e18);
+        uint _interest = _totalDebt * _borrowRate * _timeDelta / (365 days * 1e18); // does the optimizer optimize this? or should it be a constant?
         // 10. Update the total debt
         _currentTotalDebt += _interest;
         
@@ -138,17 +148,17 @@ contract Pool {
         // 12. Calculate the fee
         uint fee = _interest * _feeMantissa / 1e18;
         // 13. Calculate the accrued fee shares
-        _accruedFeeShares = fee * _totalSupply / _supplied;
+        _accruedFeeShares = fee * _totalSupply / _supplied; // if supplied is 0, we will have returned at step 7
         // 14. Update the total supply
         _currentTotalSupply += _accruedFeeShares;
     }
 
     function getBorrowRateMantissa(uint _util, uint _surgeMantissa, uint _minRateMantissa, uint _surgeRateMantissa, uint _maxRateMantissa) internal pure returns (uint) {
         if(_util <= _surgeMantissa) {
-            return (_surgeRateMantissa - _minRateMantissa) * 1e18 * _util / _surgeMantissa / 1e18 + _minRateMantissa;
+            return (_surgeRateMantissa - _minRateMantissa) * 1e18 * _util / _surgeMantissa / 1e18 + _minRateMantissa; // is this optimized by the optimized?
         } else {
-            uint excessUtil = (_util - _surgeMantissa);
-            return (_maxRateMantissa - _surgeRateMantissa) * 1e18 * excessUtil / (1e18 - _surgeMantissa) / 1e18 + _surgeRateMantissa;
+            uint excessUtil = _util - _surgeMantissa;
+            return (_maxRateMantissa - _surgeRateMantissa) * 1e18 * excessUtil / (1e18 - _surgeMantissa) / 1e18 + _surgeRateMantissa; // is this optimized by the optimizer?
         }
     }
 
@@ -157,9 +167,11 @@ contract Pool {
         return _totalDebt * 1e18 / _supplied;
     }
 
-    function tokenToShares (uint _tokenAmount, uint _supplied, uint _sharesTotalSupply) internal pure returns (uint) {
+    function tokenToShares (uint _tokenAmount, uint _supplied, uint _sharesTotalSupply, bool roundUpCheck) internal pure returns (uint) {
         if(_supplied == 0) return _tokenAmount;
-        return _tokenAmount * _sharesTotalSupply / _supplied;
+        uint shares = _tokenAmount * _sharesTotalSupply / _supplied;
+        if(roundUpCheck && shares * _supplied < _tokenAmount * _sharesTotalSupply) shares++;
+        return shares;
     }
 
     function getCollateralRatioMantissa(
@@ -211,6 +223,10 @@ contract Pool {
         }
     }
 
+    /// @notice Transfers pool tokens to the recipient
+    /// @param to The address of the recipient
+    /// @param amount The amount of pool tokens to transfer
+    /// @return bool that indicates if the operation was successful
     function transfer(address to, uint amount) external returns (bool) {
         require(to != address(0), "Pool: to cannot be address 0");
         balanceOf[msg.sender] -= amount;
@@ -221,6 +237,11 @@ contract Pool {
         return true;
     }
 
+    /// @notice Transfers pool tokens on behalf of one address to another
+    /// @param from The address of the sender
+    /// @param to The address of the recipient
+    /// @param amount The amount of pool tokens to transfer
+    /// @return bool that indicates if the operation was successful
     function transferFrom(address from, address to, uint amount) external returns (bool) {
         require(to != address(0), "Pool: to cannot be address 0");
         allowance[from][msg.sender] -= amount;
@@ -232,12 +253,18 @@ contract Pool {
         return true;
     }
 
+    /// @notice Approves an address to spend pool tokens on behalf of the sender
+    /// @param spender The address of the spender
+    /// @param amount The amount of pool tokens to approve
+    /// @return bool that indicates if the operation was successful
     function approve(address spender, uint amount) external returns (bool) {
         allowance[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
         return true;
     }
 
+    /// @notice Deposit loan tokens in exchange for pool tokens
+    /// @param amount The amount of loan tokens to deposit
     function invest(uint amount) external {
         uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
@@ -255,7 +282,8 @@ contract Pool {
             lastTotalDebt
         );
 
-        uint _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply);
+        uint _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply, false);
+        require(_shares > 0, "Pool: 0 shares");
         _currentTotalSupply += _shares;
 
         // commit current state
@@ -275,6 +303,9 @@ contract Pool {
         safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), amount);
     }
 
+    /// @notice Withdraw loan tokens in exchange for pool tokens
+    /// @param amount The amount of loan tokens to withdraw
+    /// @dev If amount is type(uint).max, withdraws all loan tokens
     function divest(uint amount) external {
         uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
@@ -292,12 +323,13 @@ contract Pool {
             lastTotalDebt
         );
 
-
+        uint _shares;
         if (amount == type(uint).max) {
-            amount = balanceOf[msg.sender] * (_currentTotalDebt + _loanTokenBalance) / _currentTotalSupply;       
+            amount = balanceOf[msg.sender] * (_currentTotalDebt + _loanTokenBalance) / _currentTotalSupply;
+            _shares = balanceOf[msg.sender];
+        } else {
+            _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply, true);
         }
-        
-        uint _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply);
         _currentTotalSupply -= _shares;
 
         // commit current state
@@ -317,6 +349,9 @@ contract Pool {
         safeTransfer(LOAN_TOKEN, msg.sender, amount);
     }
 
+    /// @notice Deposit collateral tokens
+    /// @param to The address to receive the collateral deposit
+    /// @param amount The amount of collateral tokens to deposit
     function secure (address to, uint amount) external {
         collateralBalanceOf[to] += amount;
         safeTransferFrom(COLLATERAL_TOKEN, msg.sender, address(this), amount);
@@ -325,9 +360,13 @@ contract Pool {
 
     function getDebtOf(uint _userDebtShares, uint _debtSharesSupply, uint _totalDebt) internal pure returns (uint) {
         if (_debtSharesSupply == 0) return 0;
-        return _userDebtShares * _totalDebt / _debtSharesSupply;
+        uint debt = _userDebtShares * _totalDebt / _debtSharesSupply;
+        if(debt * _debtSharesSupply < _userDebtShares * _totalDebt) debt++;
+        return debt;
     }
     
+    /// @notice Withdraw collateral tokens
+    /// @param amount The amount of collateral tokens to withdraw
     function unsecure(uint amount) external {
         uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
@@ -367,6 +406,8 @@ contract Pool {
         safeTransfer(COLLATERAL_TOKEN, msg.sender, amount);
     }
 
+    /// @notice Borrow loan tokens
+    /// @param amount The amount of loan tokens to borrow
     function borrow(uint amount) external {
         uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
@@ -392,7 +433,7 @@ contract Pool {
         uint _newUtil = getUtilizationMantissa(_currentTotalDebt + amount, (_currentTotalDebt + _loanTokenBalance));
         require(_newUtil <= SURGE_MANTISSA, "Pool: utilization too high");
 
-        uint _shares = tokenToShares(amount, _currentTotalDebt, _debtSharesSupply);
+        uint _shares = tokenToShares(amount, _currentTotalDebt, _debtSharesSupply, true);
         _currentTotalDebt += amount;
 
         // commit current state
@@ -412,7 +453,10 @@ contract Pool {
         safeTransfer(LOAN_TOKEN, msg.sender, amount);
     }
 
-    //TODO: Add a way to repay all debt including accrued interest
+    /// @notice Repay loan tokens debt
+    /// @param borrower The address of the borrower to repay on their behalf
+    /// @param amount The amount of loan tokens to repay
+    /// @dev If amount is max uint, all debt will be repaid
     function repay(address borrower, uint amount) external {
         uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
@@ -432,11 +476,13 @@ contract Pool {
 
         uint _debtSharesSupply = debtSharesSupply;
 
+        uint _shares;
         if(amount == type(uint).max) {
             amount = getDebtOf(debtSharesBalanceOf[borrower], _debtSharesSupply, _currentTotalDebt);
+            _shares = debtSharesBalanceOf[borrower];
+        } else {
+            _shares = tokenToShares(amount, _currentTotalDebt, _debtSharesSupply, false);
         }
-
-        uint _shares = tokenToShares(amount, _currentTotalDebt, _debtSharesSupply);
         _currentTotalDebt -= amount;
 
         // commit current state
@@ -456,6 +502,10 @@ contract Pool {
         safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), amount);
     }
 
+    /// @notice Seize collateral from an underwater borrower in exchange for repaying their debt
+    /// @param borrower The address of the borrower to liquidate
+    /// @param amount The amount of debt to repay
+    /// @dev If amount is max uint, all debt will be liquidated
     function liquidate(address borrower, uint amount) external {
         uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
@@ -480,18 +530,19 @@ contract Pool {
         require(userCollateralRatioMantissa > _currentCollateralRatioMantissa, "Pool: borrower not liquidatable");
 
         address _borrower = borrower; // avoid stack too deep
-        uint _amount = amount;
+        uint _amount = amount; // avoid stack too deep
         uint _shares;
         uint collateralReward;
         if(_amount == type(uint).max || _amount == userDebt) {
             collateralReward = collateralBalance;
             _shares = debtSharesBalanceOf[_borrower];
+            _amount = userDebt;
         } else {
             uint userInvertedCollateralRatioMantissa = collateralBalance * 1e18 / userDebt;
-            collateralReward = _amount * userInvertedCollateralRatioMantissa / 1e18;
-            _shares = tokenToShares(_amount, _currentTotalDebt, _debtSharesSupply);
+            collateralReward = _amount * userInvertedCollateralRatioMantissa / 1e18; // rounds down
+            _shares = tokenToShares(_amount, _currentTotalDebt, _debtSharesSupply, false);
         }
-        _currentTotalDebt -= amount;
+        _currentTotalDebt -= _amount;
 
         // commit current state
         debtSharesBalanceOf[_borrower] -= _shares;

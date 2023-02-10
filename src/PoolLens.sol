@@ -56,7 +56,9 @@ contract PoolLens {
         if (_debtSharesSupply == 0) return 0;
         uint _totalDebt = getCurrentTotalDebt(pool);
         uint _userDebtShares = Pool(pool).debtSharesBalanceOf(user);
-        return _userDebtShares * _totalDebt / _debtSharesSupply;
+        uint debt = _userDebtShares * _totalDebt / _debtSharesSupply;
+        if(debt * _debtSharesSupply < _userDebtShares * _totalDebt) debt++;
+        return debt;
     }
 
     function getCollateralRatioMantissa(address pool) external view returns (uint) {
