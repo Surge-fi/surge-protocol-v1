@@ -23,14 +23,14 @@ contract Factory {
         POOL_SYMBOL_PREFIX = pack(_poolSymbolPrefix);
     }
 
-    function pack (string memory unpacked) internal pure returns (bytes32 packed) {
+    function pack(string memory unpacked) internal pure returns (bytes32 packed) {
         require (bytes(unpacked).length < 32);
         assembly {
             packed := mload (add (unpacked, 31))
         }
     }
 
-    function unpack (bytes32 packed) internal pure returns (string memory unpacked) {
+    function unpack(bytes32 packed) internal pure returns (string memory unpacked) {
         uint l = uint (packed >> 248);
         require (l < 32);
         unpacked = string (new bytes (l));

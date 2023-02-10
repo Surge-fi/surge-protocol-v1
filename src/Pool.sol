@@ -265,7 +265,7 @@ contract Pool {
 
     /// @notice Deposit loan tokens in exchange for pool tokens
     /// @param amount The amount of loan tokens to deposit
-    function invest(uint amount) external {
+    function deposit(uint amount) external {
         uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
@@ -306,7 +306,7 @@ contract Pool {
     /// @notice Withdraw loan tokens in exchange for pool tokens
     /// @param amount The amount of loan tokens to withdraw
     /// @dev If amount is type(uint).max, withdraws all loan tokens
-    function divest(uint amount) external {
+    function withdraw(uint amount) external {
         uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
@@ -352,7 +352,7 @@ contract Pool {
     /// @notice Deposit collateral tokens
     /// @param to The address to receive the collateral deposit
     /// @param amount The amount of collateral tokens to deposit
-    function secure (address to, uint amount) external {
+    function addCollateral(address to, uint amount) external {
         collateralBalanceOf[to] += amount;
         safeTransferFrom(COLLATERAL_TOKEN, msg.sender, address(this), amount);
         emit Secure(to, msg.sender, amount);
@@ -367,7 +367,7 @@ contract Pool {
     
     /// @notice Withdraw collateral tokens
     /// @param amount The amount of collateral tokens to withdraw
-    function unsecure(uint amount) external {
+    function removeCollateral(uint amount) external {
         uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
