@@ -90,6 +90,18 @@ contract Pool {
         require(success && (data.length == 0 || abi.decode(data, (bool))), 'Pool: TRANSFER_FROM_FAILED');
     }
 
+    /// @notice Gets the current state of pool variables based on the current time
+    /// @param _loanTokenBalance The current balance of the loan token in the pool
+    /// @param _feeMantissa The fee to be charged on interest accrual
+    /// @param _lastCollateralRatioMantissa The collateral ratio at the last interest accrual
+    /// @param _totalSupply The total supply of pool tokens at the last interest accrual
+    /// @param _lastAccrueInterestTime The last time interest was accrued
+    /// @param _totalDebt The total debt of the pool at the last interest accrual
+    /// @return _currentTotalSupply The current total supply of pool tokens
+    /// @return _accruedFeeShares The accrued fee shares to be transferred to the fee recipient
+    /// @return _currentCollateralRatioMantissa The current collateral ratio
+    /// @return _currentTotalDebt The current total debt of the pool
+    /// @dev This view function behaves as a pure function with the exception of immutable variables (which are constant)
     function getCurrentState(
         uint _loanTokenBalance,
         uint _feeMantissa,
@@ -153,6 +165,13 @@ contract Pool {
         _currentTotalSupply += _accruedFeeShares;
     }
 
+    /// @notice Gets the current borrow rate in mantissa (scaled by 1e18)
+    /// @param _util The utilization in mantissa (scaled by 1e18)
+    /// @param _surgeMantissa The utilization at which the borrow rate will be at the surge rate in mantissa (scaled by 1e18)
+    /// @param _minRateMantissa The minimum borrow rate at 0% utilization in mantissa (scaled by 1e18)
+    /// @param _surgeRateMantissa The borrow rate at the surge utilization in mantissa (scaled by 1e18)
+    /// @param _maxRateMantissa The maximum borrow rate at 100% utilization in mantissa (scaled by 1e18)
+    /// @return uint The borrow rate in mantissa (scaled by 1e18)
     function getBorrowRateMantissa(uint _util, uint _surgeMantissa, uint _minRateMantissa, uint _surgeRateMantissa, uint _maxRateMantissa) internal pure returns (uint) {
         if(_util <= _surgeMantissa) {
             return (_surgeRateMantissa - _minRateMantissa) * 1e18 * _util / _surgeMantissa / 1e18 + _minRateMantissa; // is this optimized by the optimized?
@@ -162,11 +181,21 @@ contract Pool {
         }
     }
 
+    /// @notice Gets the current pool utilization rate in mantissa (scaled by 1e18)
+    /// @param _totalDebt The total debt of the pool
+    /// @param _supplied The total supplied loan tokens of the pool
+    /// @return uint The pool utilization rate in mantissa (scaled by 1e18)
     function getUtilizationMantissa(uint _totalDebt, uint _supplied) internal pure returns (uint) {
         if(_supplied == 0) return 0;
         return _totalDebt * 1e18 / _supplied;
     }
 
+    /// @notice Converts a loan token amount to shares
+    /// @param _tokenAmount The loan token amount to convert
+    /// @param _supplied The total supplied loan tokens of the pool
+    /// @param _sharesTotalSupply The total supply of shares of the pool
+    /// @param roundUpCheck Whether to check and round up the shares amount
+    /// @return uint The shares amount
     function tokenToShares (uint _tokenAmount, uint _supplied, uint _sharesTotalSupply, bool roundUpCheck) internal pure returns (uint) {
         if(_supplied == 0) return _tokenAmount;
         uint shares = _tokenAmount * _sharesTotalSupply / _supplied;
@@ -174,6 +203,16 @@ contract Pool {
         return shares;
     }
 
+    /// @notice Gets the pool collateral ratio in mantissa (scaled by 1e18)
+    /// @param _util The utilization in mantissa (scaled by 1e18)
+    /// @param _lastAccrueInterestTime The last time the pool accrued interest
+    /// @param _now The current time
+    /// @param _lastCollateralRatioMantissa The last collateral ratio of the pool in mantissa (scaled by 1e18)
+    /// @param _collateralRatioFallDuration The duration of the collateral ratio fall from max to 0 in seconds
+    /// @param _collateralRatioRecoveryDuration The duration of the collateral ratio recovery from 0 to max in seconds
+    /// @param _maxCollateralRatioMantissa The maximum collateral ratio of the pool in mantissa (scaled by 1e18)
+    /// @param _surgeMantissa The utilization at which the surge threshold is triggered in mantissa (scaled by 1e18)
+    /// @return uint The pool collateral ratio in mantissa (scaled by 1e18)
     function getCollateralRatioMantissa(
         uint _util,
         uint _lastAccrueInterestTime,
@@ -358,6 +397,11 @@ contract Pool {
         emit Secure(to, msg.sender, amount);
     }
 
+    /// @notice Gets the debt of a user
+    /// @param _userDebtShares The amount of debt shares of the user
+    /// @param _debtSharesSupply The total amount of debt shares
+    /// @param _totalDebt The total amount of debt
+    /// @return uint The debt of the user
     function getDebtOf(uint _userDebtShares, uint _debtSharesSupply, uint _totalDebt) internal pure returns (uint) {
         if (_debtSharesSupply == 0) return 0;
         uint debt = _userDebtShares * _totalDebt / _debtSharesSupply;
