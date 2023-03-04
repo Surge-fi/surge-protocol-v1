@@ -331,7 +331,7 @@ contract Pool {
         lastTotalDebt = _currentTotalDebt;
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
-        emit Invest(msg.sender, amount);
+        emit Deposit(msg.sender, amount);
         emit Transfer(address(0), msg.sender, _shares);
         if(_accruedFeeShares > 0) {
             balanceOf[_feeRecipient] += _accruedFeeShares;
@@ -377,7 +377,7 @@ contract Pool {
         lastTotalDebt = _currentTotalDebt;
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
-        emit Divest(msg.sender, amount);
+        emit Withdraw(msg.sender, amount);
         emit Transfer(msg.sender, address(0), _shares);
         if(_accruedFeeShares > 0) {
             balanceOf[_feeRecipient] += _accruedFeeShares;
@@ -394,7 +394,7 @@ contract Pool {
     function addCollateral(address to, uint amount) external {
         collateralBalanceOf[to] += amount;
         safeTransferFrom(COLLATERAL_TOKEN, msg.sender, address(this), amount);
-        emit Secure(to, msg.sender, amount);
+        emit AddCollateral(to, msg.sender, amount);
     }
 
     /// @notice Gets the debt of a user
@@ -440,7 +440,7 @@ contract Pool {
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         collateralBalanceOf[msg.sender] -= amount;
-        emit Unsecure(msg.sender, amount);
+        emit RemoveCollateral(msg.sender, amount);
         if(_accruedFeeShares > 0) {
             balanceOf[_feeRecipient] += _accruedFeeShares;
             emit Transfer(address(0), _feeRecipient, _accruedFeeShares);
@@ -610,11 +610,11 @@ contract Pool {
 
     event Transfer(address indexed from, address indexed to, uint value);
     event Approval(address indexed owner, address indexed spender, uint value);
-    event Invest(address indexed user, uint amount);
-    event Divest(address indexed user, uint amount);
+    event Deposit(address indexed user, uint amount);
+    event Withdraw(address indexed user, uint amount);
     event Borrow(address indexed user, uint amount);
     event Repay(address indexed user, address indexed caller, uint amount);
     event Liquidate(address indexed user, uint amount, uint collateralReward);
-    event Secure(address indexed user, address indexed caller, uint amount);
-    event Unsecure(address indexed user, uint amount);
+    event AddCollateral(address indexed user, address indexed caller, uint amount);
+    event RemoveCollateral(address indexed user, uint amount);
 }
