@@ -15,9 +15,8 @@ interface IFactory {
 /// @title Pool
 /// @author Moaz Mohsen & Nour Haridy
 /// @notice A Surge lending pool for a single collateral and loan token pair
-/// @dev This contract asssumes that the collateral and loan tokens are valid non-rebasing ERC20-compliant tokens
+/// @dev This contract assumes that the collateral and loan tokens are valid non-rebasing ERC20-compliant tokens
 contract Pool {
-
     IFactory public immutable FACTORY;
     IERC20 public immutable COLLATERAL_TOKEN;
     IERC20 public immutable LOAN_TOKEN;
@@ -197,9 +196,9 @@ contract Pool {
     /// @param roundUpCheck Whether to check and round up the shares amount
     /// @return uint The shares amount
     function tokenToShares (uint _tokenAmount, uint _supplied, uint _sharesTotalSupply, bool roundUpCheck) internal pure returns (uint) {
-        if(_supplied == 0) return _tokenAmount;
+        if (_supplied == 0) return _tokenAmount;
         uint shares = _tokenAmount * _sharesTotalSupply / _supplied;
-        if(roundUpCheck && shares * _supplied < _tokenAmount * _sharesTotalSupply) shares++;
+        if (roundUpCheck && shares * _supplied < _tokenAmount * _sharesTotalSupply) ++shares;
         return shares;
     }
 
@@ -369,11 +368,10 @@ contract Pool {
         } else {
             _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply, true);
         }
-        _currentTotalSupply -= _shares;
 
         // commit current state
         balanceOf[msg.sender] -= _shares;
-        totalSupply = _currentTotalSupply;
+        totalSupply -= _shares;
         lastTotalDebt = _currentTotalDebt;
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
@@ -478,13 +476,12 @@ contract Pool {
         require(_newUtil <= SURGE_MANTISSA, "Pool: utilization too high");
 
         uint _shares = tokenToShares(amount, _currentTotalDebt, _debtSharesSupply, true);
-        _currentTotalDebt += amount;
 
         // commit current state
         debtSharesBalanceOf[msg.sender] += _shares;
         debtSharesSupply = _debtSharesSupply + _shares;
         totalSupply = _currentTotalSupply;
-        lastTotalDebt = _currentTotalDebt;
+        lastTotalDebt += amount;
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Borrow(msg.sender, amount);
