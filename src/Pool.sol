@@ -91,54 +91,50 @@ contract Pool {
     }
 
     /// @notice Gets the current state of pool variables based on the current time
-    /// @param _loanTokenBalance The current balance of the loan token in the pool
-    /// @param _feeMantissa The fee to be charged on interest accrual
-    /// @param _lastCollateralRatioMantissa The collateral ratio at the last interest accrual
-    /// @param _totalSupply The total supply of pool tokens at the last interest accrual
-    /// @param _lastAccrueInterestTime The last time interest was accrued
-    /// @param _totalDebt The total debt of the pool at the last interest accrual
     /// @return _currentTotalSupply The current total supply of pool tokens
     /// @return _accruedFeeShares The accrued fee shares to be transferred to the fee recipient
     /// @return _currentCollateralRatioMantissa The current collateral ratio
     /// @return _currentTotalDebt The current total debt of the pool
+    /// @return _loanTokenBalance The current balance of the loan token in the pool
+    /// @return _feeRecipient The fee recipient of the charged fee
     /// @dev This view function behaves as a pure function with the exception of immutable variables (which are constant)
-    function getCurrentState(
-        uint _loanTokenBalance,
-        uint _feeMantissa,
-        uint _lastCollateralRatioMantissa,
-        uint _totalSupply,
-        uint _lastAccrueInterestTime,
-        uint _totalDebt
-        ) internal view returns (
+    function getCurrentState() internal view returns (
             uint _currentTotalSupply,
             uint _accruedFeeShares,
             uint _currentCollateralRatioMantissa,
-            uint _currentTotalDebt
+            uint _currentTotalDebt,
+            uint _loanTokenBalance,
+            address _feeRecipient
         ) {
-        
+
+        // 0. Get fees
+        uint _feeMantissa;
+        (_feeRecipient, _feeMantissa) = FACTORY.getFee();
+
         // 1. Set default return values
-        _currentTotalSupply = _totalSupply;
-        _currentTotalDebt = _totalDebt;
-        _currentCollateralRatioMantissa = _lastCollateralRatioMantissa;
+        _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
+        _currentTotalSupply = totalSupply;
+        _currentTotalDebt = lastTotalDebt;
+        _currentCollateralRatioMantissa = lastCollateralRatioMantissa;
         // _accruedFeeShares = 0;
 
         // 2. Get the time passed since the last interest accrual
-        uint _timeDelta = block.timestamp - _lastAccrueInterestTime;
-        
+        uint _timeDelta = block.timestamp - lastAccrueInterestTime;
+
         // 3. If the time passed is 0, return the current values
-        if(_timeDelta == 0) return (_currentTotalSupply, _accruedFeeShares, _currentCollateralRatioMantissa, _currentTotalDebt);
+        if(_timeDelta == 0) return (_currentTotalSupply, _accruedFeeShares, _currentCollateralRatioMantissa, _currentTotalDebt, _loanTokenBalance, _feeRecipient);
         
         // 4. Calculate the supplied value
-        uint _supplied = _totalDebt + _loanTokenBalance;
+        uint _supplied = lastTotalDebt + _loanTokenBalance;
         // 5. Calculate the utilization
-        uint _util = getUtilizationMantissa(_totalDebt, _supplied);
+        uint _util = getUtilizationMantissa(lastTotalDebt, _supplied);
 
         // 6. Calculate the collateral ratio
         _currentCollateralRatioMantissa = getCollateralRatioMantissa(
             _util,
-            _lastAccrueInterestTime,
+            lastAccrueInterestTime,
             block.timestamp,
-            _lastCollateralRatioMantissa,
+            lastCollateralRatioMantissa,
             COLLATERAL_RATIO_FALL_DURATION,
             COLLATERAL_RATIO_RECOVERY_DURATION,
             MAX_COLLATERAL_RATIO_MANTISSA,
@@ -146,21 +142,21 @@ contract Pool {
         );
 
         // 7. If there is no debt, return the current values
-        if(_totalDebt == 0) return (_currentTotalSupply, _accruedFeeShares, _currentCollateralRatioMantissa, _currentTotalDebt);
+        if(lastTotalDebt == 0) return (_currentTotalSupply, _accruedFeeShares, _currentCollateralRatioMantissa, _currentTotalDebt, _loanTokenBalance, _feeRecipient);
 
         // 8. Calculate the borrow rate
         uint _borrowRate = getBorrowRateMantissa(_util, SURGE_MANTISSA, MIN_RATE, SURGE_RATE, MAX_RATE);
         // 9. Calculate the interest
-        uint _interest = _totalDebt * _borrowRate * _timeDelta / (365 days * 1e18); // does the optimizer optimize this? or should it be a constant?
+        uint _interest = lastTotalDebt * _borrowRate * _timeDelta / (365 days * 1e18); // does the optimizer optimize this? or should it be a constant?
         // 10. Update the total debt
         _currentTotalDebt += _interest;
         
         // 11. If there is no fee, return the current values
-        if(_feeMantissa == 0) return (_currentTotalSupply, _accruedFeeShares, _currentCollateralRatioMantissa, _currentTotalDebt);
+        if(_feeMantissa == 0) return (_currentTotalSupply, _accruedFeeShares, _currentCollateralRatioMantissa, _currentTotalDebt, _loanTokenBalance, _feeRecipient);
         // 12. Calculate the fee
         uint fee = _interest * _feeMantissa / 1e18;
         // 13. Calculate the accrued fee shares
-        _accruedFeeShares = fee * _totalSupply / _supplied; // if supplied is 0, we will have returned at step 7
+        _accruedFeeShares = fee * totalSupply / _supplied; // if supplied is 0, we will have returned at step 7
         // 14. Update the total supply
         _currentTotalSupply += _accruedFeeShares;
     }
@@ -305,21 +301,14 @@ contract Pool {
     /// @notice Deposit loan tokens in exchange for pool tokens
     /// @param amount The amount of loan tokens to deposit
     function deposit(uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
-        (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
-        (  
+        (
             uint _currentTotalSupply,
             uint _accruedFeeShares,
             uint _currentCollateralRatioMantissa,
-            uint _currentTotalDebt
-        ) = getCurrentState(
-            _loanTokenBalance,
-            _feeMantissa,
-            lastCollateralRatioMantissa,
-            totalSupply,
-            lastAccrueInterestTime,
-            lastTotalDebt
-        );
+            uint _currentTotalDebt,
+            uint _loanTokenBalance,
+            address _feeRecipient
+        ) = getCurrentState();
 
         uint _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply, false);
         require(_shares > 0, "Pool: 0 shares");
@@ -346,21 +335,14 @@ contract Pool {
     /// @param amount The amount of loan tokens to withdraw
     /// @dev If amount is type(uint).max, withdraws all loan tokens
     function withdraw(uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
-        (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
-        (  
+        (
             uint _currentTotalSupply,
             uint _accruedFeeShares,
             uint _currentCollateralRatioMantissa,
-            uint _currentTotalDebt
-        ) = getCurrentState(
-            _loanTokenBalance,
-            _feeMantissa,
-            lastCollateralRatioMantissa,
-            totalSupply,
-            lastAccrueInterestTime,
-            lastTotalDebt
-        );
+            uint _currentTotalDebt,
+            uint _loanTokenBalance,
+            address _feeRecipient
+        ) = getCurrentState();
 
         uint _shares;
         if (amount == type(uint).max) {
@@ -412,21 +394,14 @@ contract Pool {
     /// @notice Withdraw collateral tokens
     /// @param amount The amount of collateral tokens to withdraw
     function removeCollateral(uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
-        (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
-        (  
+        (
             uint _currentTotalSupply,
             uint _accruedFeeShares,
             uint _currentCollateralRatioMantissa,
-            uint _currentTotalDebt
-        ) = getCurrentState(
-            _loanTokenBalance,
-            _feeMantissa,
-            lastCollateralRatioMantissa,
-            totalSupply,
-            lastAccrueInterestTime,
-            lastTotalDebt
-        );
+            uint _currentTotalDebt,
+            ,
+            address _feeRecipient
+        ) = getCurrentState();
 
         uint userDebt = getDebtOf(debtSharesBalanceOf[msg.sender], debtSharesSupply, _currentTotalDebt);
         if(userDebt > 0) {
@@ -453,21 +428,14 @@ contract Pool {
     /// @notice Borrow loan tokens
     /// @param amount The amount of loan tokens to borrow
     function borrow(uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
-        (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
-        (  
+        (
             uint _currentTotalSupply,
             uint _accruedFeeShares,
             uint _currentCollateralRatioMantissa,
-            uint _currentTotalDebt
-        ) = getCurrentState(
-            _loanTokenBalance,
-            _feeMantissa,
-            lastCollateralRatioMantissa,
-            totalSupply,
-            lastAccrueInterestTime,
-            lastTotalDebt
-        );
+            uint _currentTotalDebt,
+            uint _loanTokenBalance,
+            address _feeRecipient
+        ) = getCurrentState();
 
         uint _debtSharesSupply = debtSharesSupply;
         uint userDebt = getDebtOf(debtSharesBalanceOf[msg.sender], _debtSharesSupply, _currentTotalDebt) + amount;
@@ -502,21 +470,15 @@ contract Pool {
     /// @param amount The amount of loan tokens to repay
     /// @dev If amount is max uint, all debt will be repaid
     function repay(address borrower, uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
-        (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
-        (  
+        require(borrower != address(0), "Pool: 0 address");
+        (
             uint _currentTotalSupply,
             uint _accruedFeeShares,
             uint _currentCollateralRatioMantissa,
-            uint _currentTotalDebt
-        ) = getCurrentState(
-            _loanTokenBalance,
-            _feeMantissa,
-            lastCollateralRatioMantissa,
-            totalSupply,
-            lastAccrueInterestTime,
-            lastTotalDebt
-        );
+            uint _currentTotalDebt,
+            ,
+            address _feeRecipient
+        ) = getCurrentState();
 
         uint _debtSharesSupply = debtSharesSupply;
 
@@ -551,21 +513,15 @@ contract Pool {
     /// @param amount The amount of debt to repay
     /// @dev If amount is max uint, all debt will be liquidated
     function liquidate(address borrower, uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
-        (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
-        (  
+        require(borrower != address(0), "Pool: 0 borrower");
+        (
             uint _currentTotalSupply,
             uint _accruedFeeShares,
             uint _currentCollateralRatioMantissa,
-            uint _currentTotalDebt
-        ) = getCurrentState(
-            _loanTokenBalance,
-            _feeMantissa,
-            lastCollateralRatioMantissa,
-            totalSupply,
-            lastAccrueInterestTime,
-            lastTotalDebt
-        );
+            uint _currentTotalDebt,
+            ,
+            address _feeRecipient
+        ) = getCurrentState();
 
         uint collateralBalance = collateralBalanceOf[borrower];
         uint _debtSharesSupply = debtSharesSupply;
