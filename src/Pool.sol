@@ -299,6 +299,9 @@ contract Pool {
     /// @param amount The amount of pool tokens to approve
     /// @return bool that indicates if the operation was successful
     function approve(address spender, uint amount) external returns (bool) {
+        if(amount != 0 && allowance[msg.sender][spender] != 0) {
+            revert("Pool: cannot re-approve");
+        }
         allowance[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
         return true;
