@@ -283,7 +283,9 @@ contract Pool {
     /// @return bool that indicates if the operation was successful
     function transferFrom(address from, address to, uint amount) external returns (bool) {
         require(to != address(0), "Pool: to cannot be address 0");
-        allowance[from][msg.sender] -= amount;
+        if(from != msg.sender) {
+            allowance[from][msg.sender] -= amount;
+        }
         balanceOf[from] -= amount;
         unchecked {
             balanceOf[to] += amount;
