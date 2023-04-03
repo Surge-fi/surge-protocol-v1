@@ -299,11 +299,26 @@ contract Pool {
     /// @param amount The amount of pool tokens to approve
     /// @return bool that indicates if the operation was successful
     function approve(address spender, uint amount) external returns (bool) {
-        if(amount != 0 && allowance[msg.sender][spender] != 0) {
-            revert("Pool: cannot re-approve");
-        }
         allowance[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
+        return true;
+    }
+
+    /// @notice Increases the allowance of an address to spend tokens on behalf of the sender
+    /// @param spender The address of the spender
+    /// @param addedValue The amount of tokens to increase the allowance by
+    function increaseAllowance(address spender, uint addedValue) external returns (bool) {
+        allowance[msg.sender][spender] += addedValue;
+        emit Approval(msg.sender, spender, allowance[msg.sender][spender]);
+        return true;
+    }
+
+    /// @notice Decreases the allowance of an address to spend tokens on behalf of the sender
+    /// @param spender The address of the spender
+    /// @param subtractedValue The amount of tokens to decrease the allowance by
+    function decreaseAllowance(address spender, uint subtractedValue) external returns (bool) {
+        allowance[msg.sender][spender] -= subtractedValue;
+        emit Approval(msg.sender, spender, allowance[msg.sender][spender]);
         return true;
     }
 
