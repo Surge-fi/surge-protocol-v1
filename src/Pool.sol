@@ -161,7 +161,7 @@ contract Pool {
         // 12. Calculate the fee
         uint fee = _interest * _feeMantissa / 1e18;
         // 13. Calculate the accrued fee shares
-        _accruedFeeShares = fee * _totalSupply / _supplied; // if supplied is 0, we will have returned at step 7
+        _accruedFeeShares = fee * (_totalSupply * fee) / (_supplied + _interest - fee); // if supplied is 0, we will have returned at step 7
         // 14. Update the total supply
         _currentTotalSupply += _accruedFeeShares;
     }
