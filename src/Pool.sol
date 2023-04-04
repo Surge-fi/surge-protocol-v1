@@ -25,6 +25,7 @@ contract Pool {
     string public name;
     uint8 public constant decimals = 18;
     uint private constant RATE_CEILING = 100e18; // 10,000% borrow APR
+    uint public constant MINIMUM_LIQUIDITY = 10 ** 3;
     uint public immutable MIN_RATE;
     uint public immutable SURGE_RATE;
     uint public immutable MAX_RATE;
@@ -317,6 +318,7 @@ contract Pool {
     /// @param spender The address of the spender
     /// @param subtractedValue The amount of tokens to decrease the allowance by
     function decreaseAllowance(address spender, uint subtractedValue) external returns (bool) {
+        require(allowance[msg.sender][spender] >= subtractedValue, "Pool: decreased allowance below zero")
         allowance[msg.sender][spender] -= subtractedValue;
         emit Approval(msg.sender, spender, allowance[msg.sender][spender]);
         return true;
@@ -348,6 +350,9 @@ contract Pool {
         // commit current state
         balanceOf[msg.sender] += _shares;
         totalSupply = _currentTotalSupply;
+        if(totalSuppl == 0) {
+            balanceOf[address(0)] = MINIMUM_LIQUIDITY;
+        }
         lastTotalDebt = _currentTotalDebt;
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
