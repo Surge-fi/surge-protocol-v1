@@ -44,6 +44,7 @@ contract Pool {
     mapping (address => mapping (address => uint)) public allowance;
     mapping (address => uint) public balanceOf;
     mapping (address => uint) public collateralBalanceOf;
+    mapping (address => uint) public lastCommitTime;
 
     constructor(
         string memory _symbol,
@@ -60,7 +61,9 @@ contract Pool {
     ) {
         require(_collateralToken != _loanToken, "Pool: collateral and loan tokens are the same");
         require(_collateralRatioFallDuration > 0, "Pool: _collateralRatioFallDuration too low");
+        require(_collateralRatioFallDuration < _maxCollateralRatioMantissa, "Pool: _collateralRatioFallDuration too high");
         require(_collateralRatioRecoveryDuration > 0, "Pool: _collateralRatioRecoveryDuration too low");
+        require(_collateralRatioRecoveryDuration < _maxCollateralRatioMantissa, "Pool: _collateralRatioRecoveryDuration too high");
         require(_maxCollateralRatioMantissa > 0, "Pool: _maxCollateralRatioMantissa too low");
         require(_surgeMantissa < 1e18, "Pool: _surgeMantissa too high");
         require(_minRateMantissa <= _surgeRateMantissa, "Pool: _minRateMantissa too high");
@@ -153,6 +156,7 @@ contract Pool {
         uint _borrowRate = getBorrowRateMantissa(_util, SURGE_MANTISSA, MIN_RATE, SURGE_RATE, MAX_RATE);
         // 9. Calculate the interest
         uint _interest = _totalDebt * _borrowRate * _timeDelta / (365 days * 1e18); // does the optimizer optimize this? or should it be a constant?
+        require(_interest <= _totalDebt, "Pool: interest overflow")
         // 10. Update the total debt
         _currentTotalDebt += _interest;
         
@@ -362,6 +366,7 @@ contract Pool {
             balanceOf[_feeRecipient] += _accruedFeeShares;
             emit Transfer(address(0), _feeRecipient, _accruedFeeShares);
         }
+        lastCommitTime[msg.sender] = block.timestamp; // commiting the last commit time for the user to prevent withdraws in the same block
 
         // interactions
         safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), amount);
@@ -371,6 +376,8 @@ contract Pool {
     /// @param amount The amount of loan tokens to withdraw
     /// @dev If amount is type(uint).max, withdraws all loan tokens
     function withdraw(uint amount) external {
+        require(lastCommitTime[msg.sender] != block.timestamp, "Pool: cannot withdraw in the same block as a deposit");
+
         uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
