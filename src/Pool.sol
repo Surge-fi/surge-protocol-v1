@@ -346,7 +346,12 @@ contract Pool {
             lastAccrueInterestTime,
             lastTotalDebt
         );
-
+        
+        if(_currentTotalSupply == 0) {
+            _currentTotalSupply = MINIMUM_LIQUIDITY;
+            balanceOf[address(0)] = MINIMUM_LIQUIDITY;
+            emit Transfer(address(0), address(0), MINIMUM_LIQUIDITY);
+        }
         uint _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply, false);
         require(_shares > 0, "Pool: 0 shares");
         _currentTotalSupply += _shares;
@@ -354,9 +359,6 @@ contract Pool {
         // commit current state
         balanceOf[msg.sender] += _shares;
         totalSupply = _currentTotalSupply;
-        if(totalSupply == 0) {
-            balanceOf[address(0)] = MINIMUM_LIQUIDITY;
-        }
         lastTotalDebt = _currentTotalDebt;
         lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
