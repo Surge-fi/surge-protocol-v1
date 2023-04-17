@@ -28,6 +28,7 @@ contract PoolTest is Test {
         assertEq(loanToken.balanceOf(address(this)), 0);
         assertEq(pool.balanceOf(address(this)), amount);
         assertEq(pool.totalSupply(), amount);
+        vm.roll(block.number + 1);
         pool.withdraw(amount);
         assertEq(loanToken.balanceOf(address(pool)), 0);
         assertEq(loanToken.balanceOf(address(this)), amount);
@@ -49,6 +50,7 @@ contract PoolTest is Test {
         pool.deposit(amount);
         assertEq(pool.balanceOf(address(this)), amount);
         loanToken.transfer(address(pool), 1); // to trigger x * y % denom > 0
+        vm.roll(block.number + 1);
         pool.withdraw(type(uint).max);
         assertEq(pool.balanceOf(address(this)), 0);
         assertEq(loanToken.balanceOf(address(this)), amount);
@@ -72,6 +74,7 @@ contract PoolTest is Test {
         assertApproxEqAbs(pool.lastTotalDebt(), borrowAmount, 1, "c");
         assertEq(pool.debtSharesBalanceOf(address(this)), pool.lastTotalDebt(), "d");
         vm.warp(block.timestamp + 365 days);
+        vm.roll(block.number + 1);
         pool.withdraw(0); // accrues interest
         uint debt = pool.lastTotalDebt();
         uint expectedDebt = borrowAmount + (borrowAmount * 0.4e18 * 365 days / (365 days * 1e18));
@@ -93,6 +96,7 @@ contract PoolTest is Test {
         vm.warp(block.timestamp + 365 days);
         pool.repay(address(this), 23.5e18);
         assertEq(pool.lastTotalDebt(), 0);
+        vm.roll(block.number + 1);
         pool.withdraw(103.5e18);
         pool.removeCollateral(20e18);
     }
@@ -106,6 +110,7 @@ contract PoolTest is Test {
         pool.deposit(125e18);
         pool.addCollateral(address(this), 90e18);
         pool.borrow(90e18);
+        vm.roll(block.number + 1);
         pool.withdraw(25e18);
         vm.warp(block.timestamp + 365 days);
         pool.repay(address(this), 135e18);
@@ -123,6 +128,7 @@ contract PoolTest is Test {
         pool.deposit(125e18);
         pool.addCollateral(address(this), 100e18);
         pool.borrow(100e18);
+        vm.roll(block.number + 1);
         pool.withdraw(25e18);
         vm.warp(block.timestamp + 365 days);
         pool.repay(address(this), 160e18);
@@ -144,6 +150,7 @@ contract PoolTest is Test {
         pool.addCollateral(address(this), 20e18);
         pool.borrow(20e18);
         vm.warp(block.timestamp + 365 days);
+        vm.roll(block.number + 1);
         pool.withdraw(0);
         assertEq(pool.lastTotalDebt(), 40e18);
         assertEq(pool.balanceOf(address(1)), 2e18);
@@ -166,6 +173,7 @@ contract PoolTest is Test {
         pool.repay(address(this), borrowAmount);
         assertEq(pool.debtSharesBalanceOf(address(this)), 0);
         assertEq(pool.lastTotalDebt(), 0);
+        vm.roll(block.number + 1);
         pool.withdraw(borrowAmount);
         pool.removeCollateral(borrowAmount);
     }
@@ -186,6 +194,7 @@ contract PoolTest is Test {
         pool.repay(address(this), type(uint).max);
         assertEq(pool.debtSharesBalanceOf(address(this)), 0);
         assertEq(pool.lastTotalDebt(), 0);
+        vm.roll(block.number + 1);
         pool.withdraw(borrowAmount);
         pool.removeCollateral(borrowAmount);
     }
@@ -224,6 +233,7 @@ contract PoolTest is Test {
         pool.addCollateral(address(this), borrowAmount);
         pool.borrow(borrowAmount);
         vm.warp(block.timestamp + 365 days);
+        vm.roll(block.number + 1);
         pool.withdraw(0);
         uint debtAmount = pool.lastTotalDebt();
         pool.liquidate(address(this), debtAmount);
@@ -243,6 +253,7 @@ contract PoolTest is Test {
         pool.addCollateral(address(this), borrowAmount);
         pool.borrow(borrowAmount);
         vm.warp(block.timestamp + 365 days);
+        vm.roll(block.number + 1);
         pool.withdraw(0);
         pool.liquidate(address(this), type(uint).max);
         assertEq(pool.lastTotalDebt(), 0);
@@ -261,8 +272,10 @@ contract PoolTest is Test {
         pool.addCollateral(address(this), borrowAmount);
         pool.borrow(borrowAmount);
         vm.warp(block.timestamp + 365 days);
+        vm.roll(block.number + 1);
         pool.withdraw(0);
         vm.warp(block.timestamp + (1e15 / 2));
+        vm.roll(block.number + 1);
         pool.withdraw(0);
         assertEq(pool.lastCollateralRatioMantissa(), 0.5e18);
         vm.warp(block.timestamp + (1e15 / 2));
@@ -270,9 +283,11 @@ contract PoolTest is Test {
         assertEq(pool.lastCollateralRatioMantissa(), 0);
         pool.repay(address(this), borrowAmount);
         vm.warp(block.timestamp + (1e15 / 2));
+        vm.roll(block.number + 1);
         pool.withdraw(0);
         assertEq(pool.lastCollateralRatioMantissa(), 0.5e18);
         vm.warp(block.timestamp + (1e15 / 2));
+        vm.roll(block.number + 1);
         pool.withdraw(0);
         assertEq(pool.lastCollateralRatioMantissa(), 1e18);
     }
