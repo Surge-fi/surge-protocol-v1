@@ -44,7 +44,7 @@ contract Pool {
     mapping (address => mapping (address => uint)) public allowance;
     mapping (address => uint) public balanceOf;
     mapping (address => uint) public collateralBalanceOf;
-    mapping (address => uint) public lastCommitTime;
+    mapping (address => uint) public lastDepositBlock;
 
     constructor(
         string memory _symbol,
@@ -273,6 +273,7 @@ contract Pool {
     /// @return bool that indicates if the operation was successful
     function transfer(address to, uint amount) external returns (bool) {
         require(to != address(0), "Pool: to cannot be address 0");
+        require(lastDepositBlock[msg.sender] != block.number, "Pool: cannot transfer in the same block as a deposit");
         balanceOf[msg.sender] -= amount;
         unchecked {
             balanceOf[to] += amount;
@@ -288,6 +289,7 @@ contract Pool {
     /// @return bool that indicates if the operation was successful
     function transferFrom(address from, address to, uint amount) external returns (bool) {
         require(to != address(0), "Pool: to cannot be address 0");
+        require(lastDepositBlock[from] != block.number, "Pool: cannot transfer in the same block as a deposit");
         if(from != msg.sender) {
             allowance[from][msg.sender] -= amount;
         }
@@ -368,7 +370,7 @@ contract Pool {
             balanceOf[_feeRecipient] += _accruedFeeShares;
             emit Transfer(address(0), _feeRecipient, _accruedFeeShares);
         }
-        lastCommitTime[msg.sender] = block.number; // commiting the last commit time for the user to prevent withdraws in the same block
+        lastDepositBlock[msg.sender] = block.number; // commiting the last commit time for the user to prevent withdraws in the same block
 
         // interactions
         safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), amount);
@@ -378,7 +380,7 @@ contract Pool {
     /// @param amount The amount of loan tokens to withdraw
     /// @dev If amount is type(uint).max, withdraws all loan tokens
     function withdraw(uint amount) external {
-        require(lastCommitTime[msg.sender] != block.number, "Pool: cannot withdraw in the same block as a deposit");
+        require(lastDepositBlock[msg.sender] != block.number, "Pool: cannot withdraw in the same block as a deposit");
 
         uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
