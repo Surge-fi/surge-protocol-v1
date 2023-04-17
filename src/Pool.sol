@@ -324,7 +324,6 @@ contract Pool {
     /// @param spender The address of the spender
     /// @param subtractedValue The amount of tokens to decrease the allowance by
     function decreaseAllowance(address spender, uint subtractedValue) external returns (bool) {
-        require(allowance[msg.sender][spender] >= subtractedValue, "Pool: decreased allowance below zero");
         allowance[msg.sender][spender] -= subtractedValue;
         emit Approval(msg.sender, spender, allowance[msg.sender][spender]);
         return true;
