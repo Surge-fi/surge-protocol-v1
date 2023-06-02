@@ -475,6 +475,7 @@ contract Pool {
         uint userDebt = getDebtOf(debtSharesBalanceOf[msg.sender], debtSharesSupply, _currentTotalDebt);
         if(userDebt > 0) {
             uint userCollateralRatioMantissa = userDebt * 1e18 / (collateralBalanceOf[msg.sender] - amount);
+            if(collateralBalanceOf[msg.sender] != amount) require(userCollateralRatioMantissa > 0, "Pool: userCollateralRatioMantissa rounding down to 0");
             require(userCollateralRatioMantissa <= _currentCollateralRatioMantissa, "Pool: user collateral ratio too high");
         }
 
@@ -524,6 +525,7 @@ contract Pool {
         uint _debtSharesSupply = debtSharesSupply;
         uint userDebt = getDebtOf(debtSharesBalanceOf[msg.sender], _debtSharesSupply, _currentTotalDebt) + amount;
         uint userCollateralRatioMantissa = userDebt * 1e18 / collateralBalanceOf[msg.sender];
+        require(userCollateralRatioMantissa > 0, "Pool: userCollateralRatioMantissa rounding down to 0");
         require(userCollateralRatioMantissa <= _currentCollateralRatioMantissa, "Pool: user collateral ratio too high");
 
         uint _newUtil = getUtilizationMantissa(_currentTotalDebt + amount, (_currentTotalDebt + lastLoanTokenBalance));
