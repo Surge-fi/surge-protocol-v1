@@ -61,7 +61,9 @@ contract Pool {
     ) {
         require(_collateralToken != _loanToken, "Pool: collateral and loan tokens are the same");
         require(_collateralRatioFallDuration > 0, "Pool: _collateralRatioFallDuration too low");
+        require(_collateralRatioFallDuration <= _maxCollateralRatioMantissa, "Pool: _collateralRatioFallDuration too high");
         require(_collateralRatioRecoveryDuration > 0, "Pool: _collateralRatioRecoveryDuration too low");
+        require(_collateralRatioRecoveryDuration <= _maxCollateralRatioMantissa, "Pool: _collateralRatioRecoveryDuration too high");
         require(_maxCollateralRatioMantissa > 0, "Pool: _maxCollateralRatioMantissa too low");
         require(_surgeMantissa < 1e18, "Pool: _surgeMantissa too high");
         require(_minRateMantissa <= _surgeRateMantissa, "Pool: _minRateMantissa too high");
