@@ -43,6 +43,7 @@ contract Pool {
     mapping (address => mapping (address => uint)) public allowance;
     mapping (address => uint) public balanceOf;
     mapping (address => uint) public collateralBalanceOf;
+    uint public lastLoanTokenBalance;
 
     constructor(
         string memory _symbol,
@@ -325,7 +326,6 @@ contract Pool {
     /// @notice Deposit loan tokens in exchange for pool tokens
     /// @param amount The amount of loan tokens to deposit
     function deposit(uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
@@ -333,7 +333,7 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            _loanTokenBalance,
+            lastLoanTokenBalance,
             _feeMantissa,
             lastCollateralRatioMantissa,
             totalSupply,
@@ -341,7 +341,7 @@ contract Pool {
             lastTotalDebt
         );
 
-        uint _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply, false);
+        uint _shares = tokenToShares(amount, (_currentTotalDebt + lastLoanTokenBalance), _currentTotalSupply, false);
         require(_shares > 0, "Pool: 0 shares");
         _currentTotalSupply += _shares;
 
@@ -360,13 +360,15 @@ contract Pool {
 
         // interactions
         safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), amount);
+
+        // sync balance
+        lastLoanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
     }
 
     /// @notice Withdraw loan tokens in exchange for pool tokens
     /// @param amount The amount of loan tokens to withdraw
     /// @dev If amount is type(uint).max, withdraws all loan tokens
     function withdraw(uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
@@ -374,7 +376,7 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            _loanTokenBalance,
+            lastLoanTokenBalance,
             _feeMantissa,
             lastCollateralRatioMantissa,
             totalSupply,
@@ -384,10 +386,10 @@ contract Pool {
 
         uint _shares;
         if (amount == type(uint).max) {
-            amount = balanceOf[msg.sender] * (_currentTotalDebt + _loanTokenBalance) / _currentTotalSupply;
+            amount = balanceOf[msg.sender] * (_currentTotalDebt + lastLoanTokenBalance) / _currentTotalSupply;
             _shares = balanceOf[msg.sender];
         } else {
-            _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply, true);
+            _shares = tokenToShares(amount, (_currentTotalDebt + lastLoanTokenBalance), _currentTotalSupply, true);
         }
         _currentTotalSupply -= _shares;
 
@@ -406,6 +408,9 @@ contract Pool {
 
         // interactions
         safeTransfer(LOAN_TOKEN, msg.sender, amount);
+
+        // sync balance
+        lastLoanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
     }
 
     /// @notice Deposit collateral tokens
@@ -432,7 +437,6 @@ contract Pool {
     /// @notice Withdraw collateral tokens
     /// @param amount The amount of collateral tokens to withdraw
     function removeCollateral(uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
@@ -440,7 +444,7 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            _loanTokenBalance,
+            lastLoanTokenBalance,
             _feeMantissa,
             lastCollateralRatioMantissa,
             totalSupply,
@@ -468,12 +472,14 @@ contract Pool {
 
         // interactions
         safeTransfer(COLLATERAL_TOKEN, msg.sender, amount);
+
+        // sync balance
+        lastLoanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
     }
 
     /// @notice Borrow loan tokens
     /// @param amount The amount of loan tokens to borrow
     function borrow(uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
@@ -481,7 +487,7 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            _loanTokenBalance,
+            lastLoanTokenBalance,
             _feeMantissa,
             lastCollateralRatioMantissa,
             totalSupply,
@@ -494,7 +500,7 @@ contract Pool {
         uint userCollateralRatioMantissa = userDebt * 1e18 / collateralBalanceOf[msg.sender];
         require(userCollateralRatioMantissa <= _currentCollateralRatioMantissa, "Pool: user collateral ratio too high");
 
-        uint _newUtil = getUtilizationMantissa(_currentTotalDebt + amount, (_currentTotalDebt + _loanTokenBalance));
+        uint _newUtil = getUtilizationMantissa(_currentTotalDebt + amount, (_currentTotalDebt + lastLoanTokenBalance));
         require(_newUtil <= SURGE_MANTISSA, "Pool: utilization too high");
 
         uint _shares = tokenToShares(amount, _currentTotalDebt, _debtSharesSupply, true);
@@ -515,6 +521,9 @@ contract Pool {
 
         // interactions
         safeTransfer(LOAN_TOKEN, msg.sender, amount);
+
+        // sync balance
+        lastLoanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
     }
 
     /// @notice Repay loan tokens debt
@@ -522,7 +531,6 @@ contract Pool {
     /// @param amount The amount of loan tokens to repay
     /// @dev If amount is max uint, all debt will be repaid
     function repay(address borrower, uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
@@ -530,7 +538,7 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            _loanTokenBalance,
+            lastLoanTokenBalance,
             _feeMantissa,
             lastCollateralRatioMantissa,
             totalSupply,
@@ -564,6 +572,9 @@ contract Pool {
 
         // interactions
         safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), amount);
+        
+        // sync balance
+        lastLoanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
     }
 
     /// @notice Seize collateral from an underwater borrower in exchange for repaying their debt
@@ -571,7 +582,6 @@ contract Pool {
     /// @param amount The amount of debt to repay
     /// @dev If amount is max uint, all debt will be liquidated
     function liquidate(address borrower, uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
@@ -579,7 +589,7 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            _loanTokenBalance,
+            lastLoanTokenBalance,
             _feeMantissa,
             lastCollateralRatioMantissa,
             totalSupply,
@@ -626,6 +636,10 @@ contract Pool {
         // interactions
         safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), _amount);
         safeTransfer(COLLATERAL_TOKEN, msg.sender, collateralReward);
+
+
+        // sync balance
+        lastLoanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
     }
 
     event Transfer(address indexed from, address indexed to, uint value);
