@@ -25,6 +25,7 @@ contract Pool {
     string public name;
     uint8 public constant decimals = 18;
     uint private constant RATE_CEILING = 100e18; // 10,000% borrow APR
+    uint public constant MINIMUM_LIQUIDITY = 10 ** 3;
     uint public immutable MIN_RATE;
     uint public immutable SURGE_RATE;
     uint public immutable MAX_RATE;
@@ -161,7 +162,7 @@ contract Pool {
         // 12. Calculate the fee
         uint fee = _interest * _feeMantissa / 1e18;
         // 13. Calculate the accrued fee shares
-        _accruedFeeShares = fee * _totalSupply / _supplied; // if supplied is 0, we will have returned at step 7
+        _accruedFeeShares = fee * _totalSupply / (_supplied + _interest - fee); // if supplied is 0, we will have returned at step 7
         // 14. Update the total supply
         _currentTotalSupply += _accruedFeeShares;
     }
@@ -341,6 +342,12 @@ contract Pool {
             lastTotalDebt
         );
 
+        if(_currentTotalSupply == 0) {
+            _currentTotalSupply = MINIMUM_LIQUIDITY;
+            balanceOf[address(0)] = MINIMUM_LIQUIDITY;
+            emit Transfer(address(0), address(0), MINIMUM_LIQUIDITY);
+        }
+        
         uint _shares = tokenToShares(amount, (_currentTotalDebt + lastLoanTokenBalance), _currentTotalSupply, false);
         require(_shares > 0, "Pool: 0 shares");
         _currentTotalSupply += _shares;
