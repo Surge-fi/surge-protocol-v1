@@ -51,6 +51,7 @@ contract Factory {
     /// @dev Only callable by the operator
     function setFeeRecipient(address _feeRecipient) external {
         require(msg.sender == operator, "Factory: not operator");
+        require(_feeRecipient != address(0), "Factory: feeRecipient zero");
         feeRecipient = _feeRecipient;
     }
 
