@@ -200,7 +200,7 @@ contract Pool {
     /// @param _sharesTotalSupply The total supply of shares of the pool
     /// @param roundUpCheck Whether to check and round up the shares amount
     /// @return uint The shares amount
-    function tokenToShares (uint _tokenAmount, uint _supplied, uint _sharesTotalSupply, bool roundUpCheck) internal pure returns (uint) {
+    function tokenToShares(uint _tokenAmount, uint _supplied, uint _sharesTotalSupply, bool roundUpCheck) internal pure returns (uint) {
         if(_supplied == 0) return _tokenAmount;
         uint shares = _tokenAmount * _sharesTotalSupply / _supplied;
         if(roundUpCheck && shares * _supplied < _tokenAmount * _sharesTotalSupply) shares++;
@@ -357,8 +357,11 @@ contract Pool {
         // commit current state
         balanceOf[msg.sender] += _shares;
         totalSupply = _currentTotalSupply;
-        lastTotalDebt = _currentTotalDebt;
-        lastAccrueInterestTime = block.timestamp;
+        // avoid recording accrue interest time if there is no change in total debt i.e. 0 interest
+        if (lastTotalDebt != _currentTotalDebt) {
+            lastTotalDebt = _currentTotalDebt;
+            lastAccrueInterestTime = block.timestamp;
+        }
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Deposit(msg.sender, amount);
         emit Transfer(address(0), msg.sender, _shares);
@@ -405,8 +408,11 @@ contract Pool {
         // commit current state
         balanceOf[msg.sender] -= _shares;
         totalSupply = _currentTotalSupply;
-        lastTotalDebt = _currentTotalDebt;
-        lastAccrueInterestTime = block.timestamp;
+        // avoid recording accrue interest time if there is no change in total debt i.e. 0 interest
+        if (lastTotalDebt != _currentTotalDebt) {
+            lastTotalDebt = _currentTotalDebt;
+            lastAccrueInterestTime = block.timestamp;
+        }
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Withdraw(msg.sender, amount);
         emit Transfer(msg.sender, address(0), _shares);
@@ -469,8 +475,11 @@ contract Pool {
 
         // commit current state
         totalSupply = _currentTotalSupply;
-        lastTotalDebt = _currentTotalDebt;
-        lastAccrueInterestTime = block.timestamp;
+        // avoid recording accrue interest time if there is no change in total debt i.e. 0 interest
+        if (lastTotalDebt != _currentTotalDebt) {
+            lastTotalDebt = _currentTotalDebt;
+            lastAccrueInterestTime = block.timestamp;
+        }
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         collateralBalanceOf[msg.sender] -= amount;
         emit RemoveCollateral(msg.sender, amount);
@@ -519,8 +528,11 @@ contract Pool {
         debtSharesBalanceOf[msg.sender] += _shares;
         debtSharesSupply = _debtSharesSupply + _shares;
         totalSupply = _currentTotalSupply;
-        lastTotalDebt = _currentTotalDebt;
-        lastAccrueInterestTime = block.timestamp;
+        // avoid recording accrue interest time if there is no change in total debt i.e. 0 interest
+        if (lastTotalDebt != _currentTotalDebt) {
+            lastTotalDebt = _currentTotalDebt;
+            lastAccrueInterestTime = block.timestamp;
+        }
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Borrow(msg.sender, amount);
         if(_accruedFeeShares > 0) {
@@ -570,8 +582,11 @@ contract Pool {
         debtSharesBalanceOf[borrower] -= _shares;
         debtSharesSupply = _debtSharesSupply - _shares;
         totalSupply = _currentTotalSupply;
-        lastTotalDebt = _currentTotalDebt;
-        lastAccrueInterestTime = block.timestamp;
+        // avoid recording accrue interest time if there is no change in total debt i.e. 0 interest
+        if (lastTotalDebt != _currentTotalDebt) {
+            lastTotalDebt = _currentTotalDebt;
+            lastAccrueInterestTime = block.timestamp;
+        }
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Repay(borrower, msg.sender, amount);
         if(_accruedFeeShares > 0) {
@@ -632,8 +647,11 @@ contract Pool {
         debtSharesSupply = _debtSharesSupply - _shares;
         collateralBalanceOf[_borrower] = collateralBalance - collateralReward;
         totalSupply = _currentTotalSupply;
-        lastTotalDebt = _currentTotalDebt;
-        lastAccrueInterestTime = block.timestamp;
+        // avoid recording accrue interest time if there is no change in total debt i.e. 0 interest
+        if (lastTotalDebt != _currentTotalDebt) {
+            lastTotalDebt = _currentTotalDebt;
+            lastAccrueInterestTime = block.timestamp;
+        }
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Liquidate(_borrower, _amount, collateralReward);
         if(_accruedFeeShares > 0) {
