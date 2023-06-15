@@ -475,8 +475,8 @@ contract Pool {
 
         uint userDebt = getDebtOf(debtSharesBalanceOf[msg.sender], debtSharesSupply, _currentTotalDebt);
         if(userDebt > 0) {
-            uint userCollateralRatioMantissa = userDebt * 1e18 / (collateralBalanceOf[msg.sender] - amount);
-            require(userCollateralRatioMantissa <= _currentCollateralRatioMantissa, "Pool: user collateral ratio too high");
+            uint userCollateralRatioMantissa = userDebt * 1e36 / (collateralBalanceOf[msg.sender] - amount);
+            require(userCollateralRatioMantissa <= (_currentCollateralRatioMantissa * 1e18), "Pool: user collateral ratio too high");
         }
 
         // commit current state
@@ -521,8 +521,8 @@ contract Pool {
 
         uint _debtSharesSupply = debtSharesSupply;
         uint userDebt = getDebtOf(debtSharesBalanceOf[msg.sender], _debtSharesSupply, _currentTotalDebt) + amount;
-        uint userCollateralRatioMantissa = userDebt * 1e18 / collateralBalanceOf[msg.sender];
-        require(userCollateralRatioMantissa <= _currentCollateralRatioMantissa, "Pool: user collateral ratio too high");
+        uint userCollateralRatioMantissa = userDebt * 1e36 / collateralBalanceOf[msg.sender];
+        require(userCollateralRatioMantissa <= (_currentCollateralRatioMantissa * 1e18), "Pool: user collateral ratio too high");
 
         uint _newUtil = getUtilizationMantissa(_currentTotalDebt + amount, (_currentTotalDebt + lastLoanTokenBalance));
         require(_newUtil <= SURGE_MANTISSA, "Pool: utilization too high");
@@ -630,8 +630,8 @@ contract Pool {
         uint collateralBalance = collateralBalanceOf[borrower];
         uint _debtSharesSupply = debtSharesSupply;
         uint userDebt = getDebtOf(debtSharesBalanceOf[borrower], _debtSharesSupply, _currentTotalDebt);
-        uint userCollateralRatioMantissa = userDebt * 1e18 / collateralBalance;
-        require(userCollateralRatioMantissa > _currentCollateralRatioMantissa, "Pool: borrower not liquidatable");
+        uint userCollateralRatioMantissa = userDebt * 1e36 / collateralBalance;
+        require(userCollateralRatioMantissa > (_currentCollateralRatioMantissa * 1e18), "Pool: borrower not liquidatable");
 
         address _borrower = borrower; // avoid stack too deep
         uint _amount = amount; // avoid stack too deep
@@ -642,8 +642,7 @@ contract Pool {
             _shares = debtSharesBalanceOf[_borrower];
             _amount = userDebt;
         } else {
-            uint userInvertedCollateralRatioMantissa = collateralBalance * 1e18 / userDebt;
-            collateralReward = _amount * userInvertedCollateralRatioMantissa / 1e18; // rounds down
+            collateralReward = _amount * collateralBalance / userDebt;
             _shares = tokenToShares(_amount, _currentTotalDebt, _debtSharesSupply, false);
         }
 
