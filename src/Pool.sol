@@ -646,6 +646,8 @@ contract Pool {
             collateralReward = _amount * userInvertedCollateralRatioMantissa / 1e18; // rounds down
             _shares = tokenToShares(_amount, _currentTotalDebt, _debtSharesSupply, false);
         }
+
+        require(_shares != 0, "Pool: zero shares to liquidate");
         _currentTotalDebt -= _amount;
 
         // commit current state
