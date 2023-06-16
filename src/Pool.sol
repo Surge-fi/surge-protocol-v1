@@ -25,6 +25,7 @@ contract Pool {
     string public name;
     uint8 public constant decimals = 18;
     uint private constant RATE_CEILING = 100e18; // 10,000% borrow APR
+    uint public constant MINIMUM_LIQUIDITY = 10 ** 3;
     uint public immutable MIN_RATE;
     uint public immutable SURGE_RATE;
     uint public immutable MAX_RATE;
@@ -40,9 +41,11 @@ contract Pool {
     uint public lastTotalDebt;
     uint public lastAccrueInterestTime;
     uint public totalSupply;
+    uint public lastLoanTokenBalance;
     mapping (address => mapping (address => uint)) public allowance;
     mapping (address => uint) public balanceOf;
     mapping (address => uint) public collateralBalanceOf;
+    mapping (address => uint) public lastDepositBlock;
 
     constructor(
         string memory _symbol,
@@ -59,7 +62,9 @@ contract Pool {
     ) {
         require(_collateralToken != _loanToken, "Pool: collateral and loan tokens are the same");
         require(_collateralRatioFallDuration > 0, "Pool: _collateralRatioFallDuration too low");
+        require(_collateralRatioFallDuration <= _maxCollateralRatioMantissa, "Pool: _collateralRatioFallDuration too high");
         require(_collateralRatioRecoveryDuration > 0, "Pool: _collateralRatioRecoveryDuration too low");
+        require(_collateralRatioRecoveryDuration <= _maxCollateralRatioMantissa, "Pool: _collateralRatioRecoveryDuration too high");
         require(_maxCollateralRatioMantissa > 0, "Pool: _maxCollateralRatioMantissa too low");
         require(_surgeMantissa < 1e18, "Pool: _surgeMantissa too high");
         require(_minRateMantissa <= _surgeRateMantissa, "Pool: _minRateMantissa too high");
@@ -160,7 +165,7 @@ contract Pool {
         // 12. Calculate the fee
         uint fee = _interest * _feeMantissa / 1e18;
         // 13. Calculate the accrued fee shares
-        _accruedFeeShares = fee * _totalSupply / _supplied; // if supplied is 0, we will have returned at step 7
+        _accruedFeeShares = fee * _totalSupply / (_supplied + _interest - fee); // if supplied is 0, we will have returned at step 7
         // 14. Update the total supply
         _currentTotalSupply += _accruedFeeShares;
     }
@@ -268,6 +273,7 @@ contract Pool {
     /// @return bool that indicates if the operation was successful
     function transfer(address to, uint amount) external returns (bool) {
         require(to != address(0), "Pool: to cannot be address 0");
+        require(lastDepositBlock[msg.sender] != block.number, "Pool: cannot transfer in the same block as a deposit");
         balanceOf[msg.sender] -= amount;
         unchecked {
             balanceOf[to] += amount;
@@ -283,7 +289,10 @@ contract Pool {
     /// @return bool that indicates if the operation was successful
     function transferFrom(address from, address to, uint amount) external returns (bool) {
         require(to != address(0), "Pool: to cannot be address 0");
-        allowance[from][msg.sender] -= amount;
+        require(lastDepositBlock[from] != block.number, "Pool: cannot transfer in the same block as a deposit");
+        if(from != msg.sender) {
+            allowance[from][msg.sender] -= amount;
+        }
         balanceOf[from] -= amount;
         unchecked {
             balanceOf[to] += amount;
@@ -302,10 +311,27 @@ contract Pool {
         return true;
     }
 
+    /// @notice Increases the allowance of an address to spend tokens on behalf of the sender
+    /// @param spender The address of the spender
+    /// @param addedValue The amount of tokens to increase the allowance by
+    function increaseAllowance(address spender, uint addedValue) external returns (bool) {
+        allowance[msg.sender][spender] += addedValue;
+        emit Approval(msg.sender, spender, allowance[msg.sender][spender]);
+        return true;
+    }
+
+    /// @notice Decreases the allowance of an address to spend tokens on behalf of the sender
+    /// @param spender The address of the spender
+    /// @param subtractedValue The amount of tokens to decrease the allowance by
+    function decreaseAllowance(address spender, uint subtractedValue) external returns (bool) {
+        allowance[msg.sender][spender] -= subtractedValue;
+        emit Approval(msg.sender, spender, allowance[msg.sender][spender]);
+        return true;
+    }
+
     /// @notice Deposit loan tokens in exchange for pool tokens
     /// @param amount The amount of loan tokens to deposit
     function deposit(uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
@@ -313,23 +339,31 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            _loanTokenBalance,
+            lastLoanTokenBalance,
             _feeMantissa,
             lastCollateralRatioMantissa,
             totalSupply,
             lastAccrueInterestTime,
             lastTotalDebt
         );
-
-        uint _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply, false);
+        
+        if(_currentTotalSupply == 0) {
+            _currentTotalSupply = MINIMUM_LIQUIDITY;
+            balanceOf[address(0)] = MINIMUM_LIQUIDITY;
+            emit Transfer(address(0), address(0), MINIMUM_LIQUIDITY);
+        }
+        uint _shares = tokenToShares(amount, (_currentTotalDebt + lastLoanTokenBalance), _currentTotalSupply, false);
         require(_shares > 0, "Pool: 0 shares");
         _currentTotalSupply += _shares;
 
         // commit current state
         balanceOf[msg.sender] += _shares;
         totalSupply = _currentTotalSupply;
-        lastTotalDebt = _currentTotalDebt;
-        lastAccrueInterestTime = block.timestamp;
+        // avoid recording accrue interest time if there is no change in total debt i.e. 0 interest
+        if (lastTotalDebt != _currentTotalDebt) {
+            lastTotalDebt = _currentTotalDebt;
+            lastAccrueInterestTime = block.timestamp;
+        }
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Deposit(msg.sender, amount);
         emit Transfer(address(0), msg.sender, _shares);
@@ -337,16 +371,21 @@ contract Pool {
             balanceOf[_feeRecipient] += _accruedFeeShares;
             emit Transfer(address(0), _feeRecipient, _accruedFeeShares);
         }
+        lastDepositBlock[msg.sender] = block.number; // commiting the last commit time for the user to prevent withdraws in the same block
 
         // interactions
         safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), amount);
+
+        // sync balance
+        lastLoanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
     }
 
     /// @notice Withdraw loan tokens in exchange for pool tokens
     /// @param amount The amount of loan tokens to withdraw
     /// @dev If amount is type(uint).max, withdraws all loan tokens
     function withdraw(uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
+        require(lastDepositBlock[msg.sender] != block.number, "Pool: cannot withdraw in the same block as a deposit");
+
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
@@ -354,7 +393,7 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            _loanTokenBalance,
+            lastLoanTokenBalance,
             _feeMantissa,
             lastCollateralRatioMantissa,
             totalSupply,
@@ -364,18 +403,21 @@ contract Pool {
 
         uint _shares;
         if (amount == type(uint).max) {
-            amount = balanceOf[msg.sender] * (_currentTotalDebt + _loanTokenBalance) / _currentTotalSupply;
+            amount = balanceOf[msg.sender] * (_currentTotalDebt + lastLoanTokenBalance) / _currentTotalSupply;
             _shares = balanceOf[msg.sender];
         } else {
-            _shares = tokenToShares(amount, (_currentTotalDebt + _loanTokenBalance), _currentTotalSupply, true);
+            _shares = tokenToShares(amount, (_currentTotalDebt + lastLoanTokenBalance), _currentTotalSupply, true);
         }
         _currentTotalSupply -= _shares;
 
         // commit current state
         balanceOf[msg.sender] -= _shares;
         totalSupply = _currentTotalSupply;
-        lastTotalDebt = _currentTotalDebt;
-        lastAccrueInterestTime = block.timestamp;
+        // avoid recording accue interest time if there is no change in total debt i.e. 0 interest
+        if (lastTotalDebt != _currentTotalDebt) {
+            lastTotalDebt = _currentTotalDebt;
+            lastAccrueInterestTime = block.timestamp;
+        }
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Withdraw(msg.sender, amount);
         emit Transfer(msg.sender, address(0), _shares);
@@ -386,6 +428,9 @@ contract Pool {
 
         // interactions
         safeTransfer(LOAN_TOKEN, msg.sender, amount);
+        
+        // sync balance
+        lastLoanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
     }
 
     /// @notice Deposit collateral tokens
@@ -412,7 +457,6 @@ contract Pool {
     /// @notice Withdraw collateral tokens
     /// @param amount The amount of collateral tokens to withdraw
     function removeCollateral(uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
@@ -420,7 +464,7 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            _loanTokenBalance,
+            lastLoanTokenBalance,
             _feeMantissa,
             lastCollateralRatioMantissa,
             totalSupply,
@@ -431,13 +475,17 @@ contract Pool {
         uint userDebt = getDebtOf(debtSharesBalanceOf[msg.sender], debtSharesSupply, _currentTotalDebt);
         if(userDebt > 0) {
             uint userCollateralRatioMantissa = userDebt * 1e18 / (collateralBalanceOf[msg.sender] - amount);
+            if(collateralBalanceOf[msg.sender] != amount) require(userCollateralRatioMantissa > 0, "Pool: userCollateralRatioMantissa rounding down to 0");
             require(userCollateralRatioMantissa <= _currentCollateralRatioMantissa, "Pool: user collateral ratio too high");
         }
 
         // commit current state
         totalSupply = _currentTotalSupply;
-        lastTotalDebt = _currentTotalDebt;
-        lastAccrueInterestTime = block.timestamp;
+        // avoid recording accue interest time if there is no change in total debt i.e. 0 interest
+        if (lastTotalDebt != _currentTotalDebt) {
+            lastTotalDebt = _currentTotalDebt;
+            lastAccrueInterestTime = block.timestamp;
+        }
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         collateralBalanceOf[msg.sender] -= amount;
         emit RemoveCollateral(msg.sender, amount);
@@ -453,7 +501,6 @@ contract Pool {
     /// @notice Borrow loan tokens
     /// @param amount The amount of loan tokens to borrow
     function borrow(uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
@@ -461,7 +508,7 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            _loanTokenBalance,
+            lastLoanTokenBalance,
             _feeMantissa,
             lastCollateralRatioMantissa,
             totalSupply,
@@ -469,12 +516,19 @@ contract Pool {
             lastTotalDebt
         );
 
+        // avoid recording accrue interest time if there is no change in total debt i.e. 0 interest
+        // must be done before borrow to check if interest has accrued before
+        if (lastTotalDebt != _currentTotalDebt) {
+            lastAccrueInterestTime = block.timestamp;
+        }
+
         uint _debtSharesSupply = debtSharesSupply;
         uint userDebt = getDebtOf(debtSharesBalanceOf[msg.sender], _debtSharesSupply, _currentTotalDebt) + amount;
         uint userCollateralRatioMantissa = userDebt * 1e18 / collateralBalanceOf[msg.sender];
+        require(userCollateralRatioMantissa > 0, "Pool: userCollateralRatioMantissa rounding down to 0");
         require(userCollateralRatioMantissa <= _currentCollateralRatioMantissa, "Pool: user collateral ratio too high");
 
-        uint _newUtil = getUtilizationMantissa(_currentTotalDebt + amount, (_currentTotalDebt + _loanTokenBalance));
+        uint _newUtil = getUtilizationMantissa(_currentTotalDebt + amount, (_currentTotalDebt + lastLoanTokenBalance));
         require(_newUtil <= SURGE_MANTISSA, "Pool: utilization too high");
 
         uint _shares = tokenToShares(amount, _currentTotalDebt, _debtSharesSupply, true);
@@ -485,7 +539,6 @@ contract Pool {
         debtSharesSupply = _debtSharesSupply + _shares;
         totalSupply = _currentTotalSupply;
         lastTotalDebt = _currentTotalDebt;
-        lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Borrow(msg.sender, amount);
         if(_accruedFeeShares > 0) {
@@ -495,6 +548,8 @@ contract Pool {
 
         // interactions
         safeTransfer(LOAN_TOKEN, msg.sender, amount);
+        // sync balance
+        lastLoanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
     }
 
     /// @notice Repay loan tokens debt
@@ -502,7 +557,6 @@ contract Pool {
     /// @param amount The amount of loan tokens to repay
     /// @dev If amount is max uint, all debt will be repaid
     function repay(address borrower, uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
@@ -510,13 +564,19 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            _loanTokenBalance,
+            lastLoanTokenBalance,
             _feeMantissa,
             lastCollateralRatioMantissa,
             totalSupply,
             lastAccrueInterestTime,
             lastTotalDebt
         );
+
+        // avoid recording accrue interest time if there is no change in total debt i.e. 0 interest
+        // must be done before repay to check if interest has accrued before
+        if (lastTotalDebt != _currentTotalDebt) {
+            lastAccrueInterestTime = block.timestamp;
+        }
 
         uint _debtSharesSupply = debtSharesSupply;
 
@@ -534,7 +594,6 @@ contract Pool {
         debtSharesSupply = _debtSharesSupply - _shares;
         totalSupply = _currentTotalSupply;
         lastTotalDebt = _currentTotalDebt;
-        lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Repay(borrower, msg.sender, amount);
         if(_accruedFeeShares > 0) {
@@ -544,6 +603,9 @@ contract Pool {
 
         // interactions
         safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), amount);
+        
+        // sync balance
+        lastLoanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
     }
 
     /// @notice Seize collateral from an underwater borrower in exchange for repaying their debt
@@ -551,7 +613,6 @@ contract Pool {
     /// @param amount The amount of debt to repay
     /// @dev If amount is max uint, all debt will be liquidated
     function liquidate(address borrower, uint amount) external {
-        uint _loanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
@@ -559,13 +620,19 @@ contract Pool {
             uint _currentCollateralRatioMantissa,
             uint _currentTotalDebt
         ) = getCurrentState(
-            _loanTokenBalance,
+            lastLoanTokenBalance,
             _feeMantissa,
             lastCollateralRatioMantissa,
             totalSupply,
             lastAccrueInterestTime,
             lastTotalDebt
         );
+
+        // avoid recording accrue interest time if there is no change in total debt i.e. 0 interest
+        // must be done before liquidate to check if interest has accrued before
+        if (lastTotalDebt != _currentTotalDebt) {
+            lastAccrueInterestTime = block.timestamp;
+        }
 
         uint collateralBalance = collateralBalanceOf[borrower];
         uint _debtSharesSupply = debtSharesSupply;
@@ -586,6 +653,8 @@ contract Pool {
             collateralReward = _amount * userInvertedCollateralRatioMantissa / 1e18; // rounds down
             _shares = tokenToShares(_amount, _currentTotalDebt, _debtSharesSupply, false);
         }
+        
+        if(_shares == 0) revert("Pool: no shares to liquidate");
         _currentTotalDebt -= _amount;
 
         // commit current state
@@ -594,7 +663,6 @@ contract Pool {
         collateralBalanceOf[_borrower] = collateralBalance - collateralReward;
         totalSupply = _currentTotalSupply;
         lastTotalDebt = _currentTotalDebt;
-        lastAccrueInterestTime = block.timestamp;
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
         emit Liquidate(_borrower, _amount, collateralReward);
         if(_accruedFeeShares > 0) {
@@ -606,6 +674,9 @@ contract Pool {
         // interactions
         safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), _amount);
         safeTransfer(COLLATERAL_TOKEN, msg.sender, collateralReward);
+
+        // sync balance
+        lastLoanTokenBalance = LOAN_TOKEN.balanceOf(address(this));
     }
 
     event Transfer(address indexed from, address indexed to, uint value);
