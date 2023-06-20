@@ -26,6 +26,7 @@ contract Pool {
     uint8 public constant decimals = 18;
     uint private constant RATE_CEILING = 100e18; // 10,000% borrow APR
     uint public constant MINIMUM_LIQUIDITY = 10 ** 3;
+    uint public constant MIN_LOCKUP_DURATION = 30 minutes;
     uint public immutable MIN_RATE;
     uint public immutable SURGE_RATE;
     uint public immutable MAX_RATE;
@@ -45,7 +46,7 @@ contract Pool {
     mapping (address => uint) public balanceOf;
     mapping (address => uint) public collateralBalanceOf;
     uint public lastLoanTokenBalance;
-    mapping (address => uint) public lastDepositBlock;
+    mapping (address => uint) public lastDepositTimestamp;
 
     constructor(
         string memory _symbol,
@@ -273,7 +274,7 @@ contract Pool {
     /// @return bool that indicates if the operation was successful
     function transfer(address to, uint amount) external returns (bool) {
         require(to != address(0), "Pool: to cannot be address 0");
-        require(lastDepositBlock[msg.sender] != block.number, "Pool: cannot transfer in the same block as a deposit");
+        require(lastDepositTimestamp[msg.sender] + MIN_LOCKUP_DURATION <= block.timestamp, "Pool: cannot transfer within lockup duration");
         balanceOf[msg.sender] -= amount;
         unchecked {
             balanceOf[to] += amount;
@@ -289,7 +290,7 @@ contract Pool {
     /// @return bool that indicates if the operation was successful
     function transferFrom(address from, address to, uint amount) external returns (bool) {
         require(to != address(0), "Pool: to cannot be address 0");
-        require(lastDepositBlock[from] != block.number, "Pool: cannot transfer in the same block as a deposit");
+        require(lastDepositTimestamp[msg.sender] + MIN_LOCKUP_DURATION <= block.timestamp, "Pool: cannot transfer within lockup duration");
         if(from != msg.sender) {
             allowance[from][msg.sender] -= amount;
         }
@@ -372,7 +373,7 @@ contract Pool {
             balanceOf[_feeRecipient] += _accruedFeeShares;
             emit Transfer(address(0), _feeRecipient, _accruedFeeShares);
         }
-        lastDepositBlock[msg.sender] = block.number; // commiting the last commit time for the user to prevent withdraws in the same block
+        lastDepositTimestamp[msg.sender] = block.timestamp; // commiting the last commit time for the user to prevent transfers within the lockup duration
 
         // interactions
         safeTransferFrom(LOAN_TOKEN, msg.sender, address(this), amount);
@@ -385,7 +386,7 @@ contract Pool {
     /// @param amount The amount of loan tokens to withdraw
     /// @dev If amount is type(uint).max, withdraws all loan tokens
     function withdraw(uint amount) external {
-        require(lastDepositBlock[msg.sender] != block.number, "Pool: cannot withdraw in the same block as a deposit");
+        require(lastDepositTimestamp[msg.sender] + MIN_LOCKUP_DURATION <= block.timestamp, "Pool: cannot transfer within lockup duration");
         (address _feeRecipient, uint _feeMantissa) = FACTORY.getFee();
         (  
             uint _currentTotalSupply,
@@ -425,7 +426,6 @@ contract Pool {
             balanceOf[_feeRecipient] += _accruedFeeShares;
             emit Transfer(address(0), _feeRecipient, _accruedFeeShares);
         }
-        lastDepositBlock[msg.sender] = block.number; // commiting the last commit time for the user to prevent withdraws in the same block
 
         // interactions
         safeTransfer(LOAN_TOKEN, msg.sender, amount);
