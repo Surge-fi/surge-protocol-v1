@@ -290,7 +290,7 @@ contract Pool {
     /// @return bool that indicates if the operation was successful
     function transferFrom(address from, address to, uint amount) external returns (bool) {
         require(to != address(0), "Pool: to cannot be address 0");
-        require(lastDepositTimestamp[msg.sender] + MIN_LOCKUP_DURATION <= block.timestamp, "Pool: cannot transfer within lockup duration");
+        require(lastDepositTimestamp[from] + MIN_LOCKUP_DURATION <= block.timestamp, "Pool: cannot transfer within lockup duration");
         if(from != msg.sender) {
             allowance[from][msg.sender] -= amount;
         }
