@@ -660,7 +660,7 @@ contract Pool {
             lastAccrueInterestTime = block.timestamp;
         }
         lastCollateralRatioMantissa = _currentCollateralRatioMantissa;
-        emit Liquidate(_borrower, _amount, collateralReward);
+        emit Liquidate(_borrower, msg.sender, _amount, collateralReward);
         if(_accruedFeeShares > 0) {
             address __feeRecipient = _feeRecipient; // avoid stack too deep
             balanceOf[__feeRecipient] += _accruedFeeShares;
@@ -682,7 +682,7 @@ contract Pool {
     event Withdraw(address indexed user, uint amount);
     event Borrow(address indexed user, uint amount);
     event Repay(address indexed user, address indexed caller, uint amount);
-    event Liquidate(address indexed user, uint amount, uint collateralReward);
+    event Liquidate(address indexed user, address indexed liquidator, uint amount, uint collateralReward);
     event AddCollateral(address indexed user, address indexed caller, uint amount);
     event RemoveCollateral(address indexed user, uint amount);
 }
