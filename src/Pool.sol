@@ -15,7 +15,7 @@ interface IFactory {
 /// @title Pool
 /// @author Moaz Mohsen & Nour Haridy
 /// @notice A Surge lending pool for a single collateral and loan token pair
-/// @dev This contract asssumes that the collateral and loan tokens are valid non-rebasing ERC20-compliant tokens
+/// @dev This contract assumes that the collateral and loan tokens are valid non-rebasing ERC20-compliant tokens
 contract Pool {
 
     IFactory public immutable FACTORY;
